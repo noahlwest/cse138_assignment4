@@ -39,7 +39,7 @@ def getLocalKeyCount():
 
 
 #behavior for /kvs/keys
-@app.route('/kvs/keys/<string:key>', methods = ['GET', 'PUT', 'DELETE'])
+@app.route('/kvs/keys/<string:key>', methods = ['GET', 'PUT'])
 def kvs(key):
     #----------------------------------
     #decide whether we're working locally or remotely.
@@ -148,35 +148,9 @@ def kvs(key):
                     replaced=True,
                     address=correctKeyAddress
                 ), 200
-            
-        if(request.method == 'DELETE'):
-            #if key/value pair does not exist: give 404 without address.
-            if(whichShard is None):
-                return jsonify(
-                    doesExist=False,
-                    error="Key does not exist",
-                    message="Error in DELETE"
-                ), 404
-            
-            #get the address of the shard with the key-value pair
-            correctKeyAddress = shardAddressDict.get(whichShard)
-            #get the URL of the address and endpoint
-            baseUrl = ('http://' + correctKeyAddress + '/kvs/keys/' + key)
-            #send DELETE request to correct URL
-            r = requests.delete(baseUrl)
-            #tell everyone (including self, but that's okay) this key is deleted
-            for shard, address in shardAddressDict.items():
-                #build URL, send updateKey DELETE
-                baseUrl = ('http://' + address + '/kvs/updateKey')
-                #tell everyone <key> is deleted
-                r = requests.delete(baseUrl, json={'key' : key})
+        
+        #if(request.method == 'DELETE'):
 
-            #return response with added address
-            return jsonify(
-                doesExist=True,
-                message="Deleted successfully",
-                address=correctKeyAddress
-            ), 200
     #else: work locally
     
     #local handling of GET
@@ -244,35 +218,12 @@ def kvs(key):
     #----------------------------------
     #handling DELETE
     #local handling of DELETE
-    if(request.method == 'DELETE'):
-        #if entry does not exist exists
-        if(localKvsDict.get(key) is None):
-            return jsonify(
-                doesExist=False,
-                error="Key does not exist",
-                message="Error in DELETE"
-            ), 404
-        #key does exist
-        del localKvsDict[key]
-        
-        #tell everyone we deleted key
-        for shard, address in shardAddressDict.items():
-            #will also send a request to itself, but that's probably okay
-            #build URL, send updateKey DELETE
-            baseUrl = ('http://' + address + '/kvs/updateKey')
-            #tell everyone <key> is deleted
-            r = requests.delete(baseUrl, json={'key' : key})
-            #no error checking, just assuming things work
-
-        return jsonify(
-            doesExist=True,
-            message="Deleted successfully"
-        ), 200
-        #----------------------------------
+    #if(request.method == 'DELETE'):
+    #----------------------------------
         
 
 #behavior for /kvs/updateKey
-@app.route('/kvs/updateKey', methods = ['PUT', 'DELETE'])
+@app.route('/kvs/updateKey', methods = ['PUT'])
 def updateKey():
     #update/add key
     if(request.method == 'PUT'):
@@ -284,12 +235,7 @@ def updateKey():
         ), 200
     
     #delete key
-    if(request.method == 'DELETE'):
-        key = request.get_json().get('key')
-        del keyShardDict[key]
-        return jsonify(
-            message="Key deleted"
-        ), 200
+    #if(request.method == 'DELETE'):
 
 
 #behavior for /kvs/key-count
