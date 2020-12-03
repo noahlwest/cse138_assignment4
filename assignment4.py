@@ -273,7 +273,9 @@ def getKeyCount():
     if(request.method == 'GET'):
         #standard response
         keyCount = getLocalKeyCount()
-        jsonDict = {"message": "Key count retrieved successfully", "key-count": keyCount}
+        jsonDict = {"message": "Key count retrieved successfully",
+                    "key-count": keyCount,
+                    "shard-id": selfShardID}
         jsonObject = json.dumps(jsonDict)
         return jsonObject, 200
         #have to do it this way because the nice jsonify way doesn't work
