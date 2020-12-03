@@ -289,18 +289,34 @@ def updateView():
         #read in and parse viewString
         viewString = request.get_json().get('view')
         viewArray = str(viewString).split(',')
-        shardAddressDict.clear()
+        shardAddressesDict.clear()
 
         i = 1
         #update shardAddressDict
         for address in viewArray:
-            shardAddressDict.update({"node" + str(i) : address})
+            nodeAddressDict.update({"node" + str(i) : address})
             i += 1
 
+        global replFactor
+        replFactor = request.get_json().get('repl-factor')
+
+        #reset shardAddressesDict
+        numShards = len(nodeAddressDict) // replFactor
+        for i in range(numShards):
+            shardID = "shard" + str(i + 1)
+            emptyTempList = []
+            shardAddressesDict.update({ shardID : emptyTempList})
+
+        #deterministically allocate nodes to shards in shardAddressesDict
+        decideNodeToShard()
+
+        global selfShardID #global keyword so we know this isn't a local variable
         #update selfShardID
-        for shard, address in shardAddressDict.items():
-            if(selfAddress == address):
-                selfShardID = shard
+        for shard, addresses in shardAddressesDict.items():
+            for address in addresses:
+                if(selfAddress == address):
+                    selfShardID = shardelfAddress == address):
+                    selfShardID = shard
 
         return "OK", 200
 
