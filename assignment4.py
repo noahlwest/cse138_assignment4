@@ -315,7 +315,6 @@ def updateView():
         for shard, addresses in shardAddressesDict.items():
             for address in addresses:
                 if(selfAddress == address):
-                    selfShardID = shardelfAddress == address):
                     selfShardID = shard
 
         return "OK", 200
