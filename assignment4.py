@@ -451,7 +451,9 @@ if __name__ == '__main__':
     viewString = os.getenv('VIEW')
 
     #replication factor
-    replFactor = os.getenv('REPL_FACTOR')
+    replFactor = 1 #default of 1, because we can
+    if os.getenv('REPL_FACTOR') is not None:
+        replFactor = os.getenv('REPL_FACTOR')
 
     #dictionary that holds {key : shard} to identify which shard a key belongs to
     keyShardDict = {}
@@ -481,7 +483,7 @@ if __name__ == '__main__':
     numShards = len(nodeAddressDict) // replFactor
     for i in range(numShards):
         #create shardID to later reference shards
-        shardID = "shard" = str(i + 1)
+        shardID = "shard" + str(i + 1)
         #empty list for creating shardAddressesDict
         emptyTempList = []
         #put shardID + empty list into dict
