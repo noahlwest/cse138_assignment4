@@ -29,6 +29,36 @@ def decideShard():
             whichShard = shard
     return whichShard
 
+#decideNodeToShard()
+#decides which nodes go to which shards
+#takes the current list of nodes, and distributes them in <shard:[addresses]> dictionary according to replication factor
+#updates the locally held shardAddresses dictionary, which is distributed by other functions
+def decideNodeToShard():
+    
+    shardCounter = 1 #used for going through named shards
+    replFactorCounter = 0 #used to count the amount of replicas we dedicate to a node
+    #for each node, designate its address to a shard
+    for node, address in nodeAddressDict.items():
+        if replFactorCounter == replFactor: #if we have enough replicas of one shard:
+            replFactorCounter = 0 #reset number of replicas to 0
+            shardCounter += 1 #move to next shard
+        #shardID used to navigate shardAddressesDict
+        shardID = ("shard" + str(shardCounter))
+        #get the current list of addresses assigned to a node
+        #this dictionary should be clear()'d during reshard
+        nodesList = shardAddressesDict.get(shardID)
+        #if list does not exist, make a new one
+        if nodesList is None:
+            nodesList = []
+        #append address to list of addresses that belong to a shard
+        nodesList.append(address)
+        #update the shardAddressesDict with the array of addresses
+        shardAddressesDict.update({ shardID : nodesList })
+        #increment counter to say how many replicas on this shard
+        replFactorCounter += 1
+        
+
+
 
 #getLocalKeyCount()
 #gets the local keycount by getting the length of localKvsDict
