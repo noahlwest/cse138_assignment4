@@ -20,13 +20,14 @@ def decideShard():
     minKeys = getLocalKeyCount() #min defaults to local
     whichShard = selfShardID #defaults to local shardID
     #for each shard:address pair, see who has the least amount of keys
-    for shard, address in shardAddressDict.items():
-        baseUrl = ('http://' + address + '/kvs/key-count')
-        r = requests.get(baseUrl)
-        requestedKeyCount = r.json().get('key-count')
-        if(requestedKeyCount < minKeys):
-            minKeys = requestedKeyCount
-            whichShard = shard
+    for shard, addresses in shardAddressesDict.items():
+        for address in addresses:
+            baseUrl = ('http://' + address + '/kvs/key-count')
+            r = requests.get(baseUrl)
+            requestedKeyCount = r.json().get('key-count')
+            if(requestedKeyCount < minKeys):
+                minKeys = requestedKeyCount
+                whichShard = shard
     return whichShard
 
 #decideNodeToShard()
