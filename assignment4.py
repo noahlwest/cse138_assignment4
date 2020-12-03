@@ -34,7 +34,6 @@ def decideShard():
 #takes the current list of nodes, and distributes them in <shard:[addresses]> dictionary according to replication factor
 #updates the locally held shardAddresses dictionary, which is distributed by other functions
 def decideNodeToShard():
-    
     shardCounter = 1 #used for going through named shards
     replFactorCounter = 0 #used to count the amount of replicas we dedicate to a node
     #for each node, designate its address to a shard
@@ -56,9 +55,8 @@ def decideNodeToShard():
         shardAddressesDict.update({ shardID : nodesList })
         #increment counter to say how many replicas on this shard
         replFactorCounter += 1
+    
         
-
-
 
 #getLocalKeyCount()
 #gets the local keycount by getting the length of localKvsDict
@@ -449,14 +447,20 @@ if __name__ == '__main__':
     #string of the view
     viewString = os.getenv('VIEW')
 
+    #replication factor
+    replFactor = os.getenv('REPL_FACTOR')
+
     #dictionary that holds {key : shard} to identify which shard a key belongs to
     keyShardDict = {}
 
     #need a local dictionary to hold this shard's key/value pairs
     localKvsDict = {}
 
-    #dictionary that holds {shard : address} to identify the address of any shard
-    shardAddressDict = {}
+    #dictionary that holds {node : address} to list all nodes and addresses we have
+    nodeAddressDict = {}
+
+    #dictionary that holds {shard : [addresses]} to identify the addresses that belong to a shard
+    shardAddressesDict = {}
     
     viewArray = None
     if(viewString is not None):
@@ -464,20 +468,36 @@ if __name__ == '__main__':
         viewArray = str(viewString).split(',')
 
         i = 1
-        #add all shard : address pairs to shardAddressDict
+        #add all node : address pairs to nodeAddressDict
         for address in viewArray:
-            shardAddressDict.update({"node" + str(i) : address})
+            nodeAddressDict.update({"node" + str(i) : address})
             i += 1
+
+    #set up shardAddressesDict
+    #need to know how many shards we need (num addresses / how many replicas)
+    numShards = len(nodeAddressDict) // replFactor
+    for i in range(numShards):
+        #create shardID to later reference shards
+        shardID = "shard" = str(i + 1)
+        #empty list for creating shardAddressesDict
+        emptyTempList = []
+        #put shardID + empty list into dict
+        shardAddressesDict.update({ shardID : emptyTempList})
+
+    #allocate nodes to shards in shardAddressesDict
+    decideNodeToShard()
+
+    #verify things worked
+    #print(shardAddressesDict.items(), file=sys.stderr)
 
     #value to decide which shard the local node is in respect to the view
     selfShardID = "default" #default value of "default" to indicate error
-    #no error checking right now, since we're assuming whoever operates this
-    #knows how things work.
 
     #decide which shardID belongs to local node
-    for shard, address in shardAddressDict.items():
-        if(selfAddress == address):
-            selfShardID = shard
+    for shard, addresses in shardAddressesDict.items():
+        for address in addresses:
+            if(selfAddress == address):
+                selfShardID = shard
         
 
     app.run(host="0.0.0.0", port=13800, debug=True)
