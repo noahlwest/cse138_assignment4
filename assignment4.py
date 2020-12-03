@@ -66,6 +66,33 @@ def getLocalKeyCount():
     keyCount = len(localKvsDict)
     return keyCount
 
+#isRequestValidToShard
+#checks if a request is valid, to the shard it is assigned
+@app.route('/kvs/isRequestValidToShard/<string:key>', methods = ['PUT'])
+def isRequestValidToShard():
+    #if there's no value in the json
+    value = request.get_json().get('value')
+    if(value is None):
+        return jsonify(
+            error="Value is missing",
+            message="Error in PUT",
+            isRequestGood=False
+        ), 400
+
+    #if the key is too long, arbitrarily, temporarily assign it to the local node
+    #and send a failure, since it won't belong anywhere ever.
+    if the length is > 50
+    if(len(key) > 50):
+        return jsonify(
+            error="Key is too long",
+            message="Error in PUT",
+            isRequestGood=False
+        ), 400
+
+    return jsonify(
+        ifRequestGood=True
+    ), 200
+
 
 #behavior for /kvs/keys
 @app.route('/kvs/keys/<string:key>', methods = ['GET', 'PUT'])
@@ -77,6 +104,7 @@ def kvs(key):
     #if not on this shard
     if(whichShard != selfShardID):
 
+        #non-local GET
         if(request.method == 'GET'):
             #if key/value pair does not exist: give 404 without address.
             if(whichShard is None):
@@ -86,53 +114,116 @@ def kvs(key):
                     message="Error in GET"
                 ), 404
             #key/value pair DOES exist somewhere else:
-            #get the address of the shard with the key-value pair
-            correctKeyAddress = shardAddressDict.get(whichShard)
-            #get the url of the address and endpoint
-            baseUrl = ('http://' + correctKeyAddress + '/kvs/keys/' + key)
-            #send GET to correct URL
-            r = requests.get(baseUrl)
-            #retrieve value
-            value = r.json().get('value')
-            #no error-- must return valid response
-            #even though it's not on the spec, sends an IP response because Aleck told us to
-            # at https://cse138-fall20.slack.com/archives/C01C01HF58S/p1605068093044400?thread_ts=1605067981.043200&cid=C01C01HF58S
+            #get the list of addresses of the shard with the key-value pair
+            correctKeyAddresses = shardAddressesDict.get(whichShard)
+            #until we get a response, try getting the value from each node on the shard
+            for address in correctKeyAddresses:
+                #get the url of the address and endpoint
+                baseUrl = ('http://' + address + '/kvs/keys/' + key)
+                #send GET to correct URL
+                timeoutVal = 5/replFactor
+                r = None
+                try:
+                    r = requests.get(baseUrl, timeout=timeoutVal)
+                except:
+                    #except means node is down, but there's nothing we can do
+                    #besides try another node, so we pass
+                    pass
+                #retrieve value, if r exists
+                if r is not None:
+                    value = r.json().get('value')
+                #if r is not None and we got back a value
+                if value is not None:
+                    #no error-- must return valid response
+                    return jsonify(
+                        doesExist=True,
+                        message="Retrieved successfully",
+                        value=value,
+                        address=address
+                    ), 200
+                    #should end execution
+            #if no node is reachable, send a fail message
             return jsonify(
-                doesExist=True,
-                message="Retrieved successfully",
-                value=value,
-                address=correctKeyAddress
-            ), 200
+                error="Unable to satisfy request",
+                message="Error in GET"
+            ), 503
 
+        #non-local PUT
         if(request.method == 'PUT'):
             #if there's no value in the json
-            value = request.get_json().get('value')
-            if(value is None):
-                return jsonify(
-                    error="Value is missing",
-                    message="Error in PUT"
-                ), 400
-            #if value is valid but key length >50
-            if(len(key) > 50):
-                return jsonify(
-                    error="Key is too long",
-                    message="Error in PUT"
-                ), 400
-            #valid request
+            #leave this validation up to the forwarded node
+            #TODO: ADD VALIDATION FOR THE LOCAL NODE
+            #value = request.get_json().get('value')
+            #if(value is None):
+            #    return jsonify(
+            #        error="Value is missing",
+            #        message="Error in PUT"
+            #    ), 400
+
+            #if the key is too long, arbitrarily, temporarily assign it to the local node
+            #and send a failure, since it won't belong anywhere ever.
+            #if the length is > 50
+            #leave this validation to the forwarded node
+            #TODO: ADD VALIDATION FOR THE LOCAL NODE
+            #if(len(key) > 50):
+            #    return jsonify(
+            #        error="Key is too long",
+            #        message="Error in PUT"
+            #    ), 400
+            
+            #if it doesn't belong to a shard yet
             if(whichShard is None):
                 #decide which shard to put this new key
                 whichShard = decideShard()
-                #get address of shard we will put it in
-                correctKeyAddress = shardAddressDict.get(whichShard)
+                #get the list of addresses for the shard we will put it in
+                correctKeyAddresses = shardAddressesDict.get(whichShard)
+
+                isRequestGood = None
+                #forward the request, and ask nodes on shard to check if its valid or not before modifying keyShard
+                for address in correctKeyAddresses:
+                    if isRequestGood == True:
+                        pass
+                    else:
+                        timeoutVal = 5 / replFactor
+                        baseUrl = ('http://' + address + '/kvs/isRequestValidToShard/' + key)
+                        try:
+                            r = requests.put(baseUrl, json={'key' : request.get_json().get('key'), 'value' : request.get_json().get('value')}, timeout=timeoutVal)
+                            isRequestGood = r.json().get('isRequestGood')
+                            if isRequestGood == False:
+                                #return error
+                                jsonDict ={
+                                    "message": r.json().get("message"),
+                                    "error": r.json().get("error"),
+                                    "address": address,
+                                    #"causal-context": causalContextDict #TODO: add our causal context to this
+                                }
+                                jsonObject = json.dumps(jsonDict)
+                                return jsonObject, 400
+                        except:
+                            pass
+                            #error, node is down. Nothing we can do, try next node
+                #no nodes reachable, return error
+                if isRequestGood == None:
+                    return jsonify(
+                        error="Unable to satisfy request",
+                        message="Error in PUT"
+                    ), 503
+
+                #if it hits here, the request is confirmed valid and we can continue as normal
                 #tell ourselves where this key belongs
                 keyShardDict.update({key:whichShard})
-                #tell all nodes (including self, but that's okay) that the chosen node now contains this key
-                for shard, address in shardAddressDict.items():
-                    #build URL, send updateKey PUT
-                    baseUrl = ('http://' + address + '/kvs/updateKey')
-                    #tell everyone <shard> contains <key>
-                    r = requests.put(baseUrl, json={'shard' : whichShard, 'key' : key})
-                    #no error checking, just assuming things work
+                #broadcast that the chosen node now contains this key
+                for shard, addresses in shardAddressesDict.items():
+                    for address in addresses:
+                        #build URL, send updateKey PUT
+                        baseUrl = ('http://' + address + '/kvs/updateKey')
+                        #tell everyone <shard> contains <key>
+                        try:
+                            r = requests.put(baseUrl, json={'shard' : whichShard, 'key' : key})
+                            #set timeout to effective 0, because we don't care about response
+                        except:
+                            pass
+                            #error means node is down
                 
                 #we should be okay to send a normal PUT request now, since the shards
                 #all know where the key belongs, and it should miss this (whichShard is None) logic block.
@@ -140,21 +231,26 @@ def kvs(key):
                 
 
             #else: valid request and key is allocated to a shard
-            #get the address of the shard with the key-value pair
-            correctKeyAddress = shardAddressDict.get(whichShard)
-            #get the url of the address and endpoint
-            baseUrl = ('http://' + correctKeyAddress + '/kvs/keys/' + key)
-            #send PUT to correct URL
-            r = requests.put(baseUrl, json=request.get_json())
+            #get the addresses of nodes on the shard with the key-value pair
+            correctKeyAddresses = shardAddressesDict.get(whichShard)
+            #send to all the nodes on the shard
+            statusCode = None
+            successAddress = None
+            for address in correctKeyAddresses:
+                baseUrl = ('http://' + correctKeyAddress) + '/kvs/keys/' + key)
+                r = requests.put(baseUrl, json=request.get_json())
+                if statusCode is None:
+                    statusCode = r.status_code
+                    successAddress = address
             #this block should only get hit if key didn't exist before
             #and we decide to place it locally
             if(whichShard == selfShardID): #don't send address in response
-                if(r.status_code == 201):
+                if(statusCode == 201):
                     return jsonify(
                         message="Added successfully",
                         replaced=False
                     ), 201
-                if(r.status_code == 200):
+                if(statusCode == 200):
                     return jsonify(
                         message="Updated successfully",
                         replaced=True
@@ -166,7 +262,7 @@ def kvs(key):
                 return jsonify(
                     message="Added successfully",
                     replaced=False,
-                    address=correctKeyAddress
+                    address=successAddress
                 ), 201
             #if updated
             if(r.status_code == 200):
@@ -175,7 +271,7 @@ def kvs(key):
                 return jsonify(
                     message="Updated successfully",
                     replaced=True,
-                    address=correctKeyAddress
+                    address=successAddress
                 ), 200
         
         #if(request.method == 'DELETE'):
