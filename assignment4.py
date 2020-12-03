@@ -333,20 +333,31 @@ def updateKeyShard():
         keyShardDict = loadedKeyShardDict.copy()
         return "OK", 200
 
+#rearrangeKeys: causal context is not necessary for rearranging keys.
+#rearrangeKeys should only be called during a view-change, where causal context
+#   is free to be cleared, according to https://cse138-fall20.slack.com/archives/C01FKJLRZKN/p1606622040051200?thread_ts=1606621491.049500&cid=C01FKJLRZKN
 @app.route('/kvs/rearrangeKeys', methods=['PUT'])
 def rearrangeKeys():
     if(request.method == 'PUT'):
         localKvsDictCopy = localKvsDict.copy()
         #loop through copy of localKvsDict
         for key, value in localKvsDictCopy.items():
-            correctKeyShard = keyShardDict[key]
-            correctKeyAddress = shardAddressDict[correctKeyShard]
-            if(selfAddress != correctKeyAddress):
-                #send key : value to correct place
-                baseUrl = ('http://' + correctKeyAddress + '/kvs/keys/' + key)
-                r = requests.put(baseUrl, json={'key' : key, 'value' : value})
-                #delete key : value from local dict
+            #get the shard the key:value is supposed to be on
+            correctShardID = keyShardDict.get(key)
+            #get all the addresses of that shard
+            addressList = shardAddressesDict.get(correctShardID)
+            #if not the local shard: send to correct places then delete
+            if (selfShardID != correctShardID):
+                for address in addressList:
+                    baseUrl = ('http://' + address + '/kvs/keys/' + key)
+                    r = requests.put(baseUrl, json={'key' : key, 'value' : value})
                 del localKvsDict[key]
+            #else, if it is the local shard, send to everyone else on this shard
+            else:
+                for address in addressList:
+                    baseUrl = ('http://' + address + '/kvs/keys/' + key)
+                    r = requests.put(baseUrl, json={'key' : key, 'value' : value})
+                #don't delete from local
 
         return "OK", 200
 
