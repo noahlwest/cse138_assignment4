@@ -19,7 +19,7 @@ app = Flask(__name__)
 def decideShard():
     minKeys = getLocalKeyCount() #min defaults to local
     whichShard = selfShardID #defaults to local shardID
-    #for each shard:address pair, see who has the least amount of keys
+    #for each shard, see who has the least amount of keys
     for shard, addresses in shardAddressesDict.items():
         for address in addresses:
             baseUrl = ('http://' + address + '/kvs/key-count')
