@@ -69,7 +69,7 @@ def getLocalKeyCount():
 #isRequestValidToShard
 #checks if a request is valid, to the shard it is assigned
 @app.route('/kvs/isRequestValidToShard/<string:key>', methods = ['PUT'])
-def isRequestValidToShard():
+def isRequestValidToShard(key):
     #if there's no value in the json
     value = request.get_json().get('value')
     if(value is None):
@@ -90,7 +90,7 @@ def isRequestValidToShard():
         ), 400
 
     return jsonify(
-        ifRequestGood=True
+        isRequestGood=True
     ), 200
 
 
@@ -177,6 +177,8 @@ def kvs(key):
                 whichShard = decideShard()
                 #get the list of addresses for the shard we will put it in
                 correctKeyAddresses = shardAddressesDict.get(whichShard)
+                print("correctKeyAddresses", file=sys.stderr)
+                print(correctKeyAddresses, file=sys.stderr)
 
                 isRequestGood = None
                 #forward the request, and ask nodes on shard to check if its valid or not before modifying keyShard
@@ -185,10 +187,19 @@ def kvs(key):
                         pass
                     else:
                         timeoutVal = 5 / replFactor
+                        print(timeoutVal, file=sys.stderr)
                         baseUrl = ('http://' + address + '/kvs/isRequestValidToShard/' + key)
                         try:
-                            r = requests.put(baseUrl, json={'key' : request.get_json().get('key'), 'value' : request.get_json().get('value')}, timeout=timeoutVal)
-                            isRequestGood = r.json().get('isRequestGood')
+                            print("before request", file=sys.stderr)
+                            r = None
+                            try:
+                                r = requests.put(baseUrl, json={'value' : request.get_json().get('value')})
+                                isRequestGood = r.json().get('isRequestGood')
+                            except:
+                                #print("Error:", file=sys.stderr)
+                                #print(str(sys.exc_info()[0]), file=sys.stderr)
+                                pass
+
                             if isRequestGood == False:
                                 #return error
                                 jsonDict ={
@@ -237,7 +248,7 @@ def kvs(key):
             statusCode = None
             successAddress = None
             for address in correctKeyAddresses:
-                baseUrl = ('http://' + correctKeyAddress + '/kvs/keys/' + key)
+                baseUrl = ('http://' + address + '/kvs/keys/' + key)
                 r = requests.put(baseUrl, json=request.get_json())
                 if statusCode is None:
                     statusCode = r.status_code
@@ -615,7 +626,7 @@ if __name__ == '__main__':
     #replication factor
     replFactor = 1 #default of 1, because we can
     if os.getenv('REPL_FACTOR') is not None:
-        replFactor = os.getenv('REPL_FACTOR')
+        replFactor = int(os.getenv('REPL_FACTOR'))
 
     #dictionary that holds {key : shard} to identify which shard a key belongs to
     keyShardDict = {}
