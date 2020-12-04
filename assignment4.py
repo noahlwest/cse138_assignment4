@@ -81,7 +81,7 @@ def isRequestValidToShard():
 
     #if the key is too long, arbitrarily, temporarily assign it to the local node
     #and send a failure, since it won't belong anywhere ever.
-    if the length is > 50
+    #if the length is > 50
     if(len(key) > 50):
         return jsonify(
             error="Key is too long",
@@ -237,7 +237,7 @@ def kvs(key):
             statusCode = None
             successAddress = None
             for address in correctKeyAddresses:
-                baseUrl = ('http://' + correctKeyAddress) + '/kvs/keys/' + key)
+                baseUrl = ('http://' + correctKeyAddress + '/kvs/keys/' + key)
                 r = requests.put(baseUrl, json=request.get_json())
                 if statusCode is None:
                     statusCode = r.status_code
@@ -461,47 +461,80 @@ def rearrangeKeys():
 def putViewChange():
 
     if(request.method == 'PUT'):
+        #get the new replFactor from the PUT request
+        global replFactor
+        replFactor = request.get_json().get('repl-factor')
         #get the new view from the PUT request
         viewString = request.get_json().get('view')
         #break up the view into an array of addresses
         viewArray = str(viewString).split(',')
-        #copy the shardAddressDict for sending requests to deactivated nodes
-        oldShardAddressDict = shardAddressDict.copy()
-        #clear the current shardAddressDict
-        shardAddressDict.clear()
+        #copy the nodeAddressDict for sending requests to deactivated nodes
+        oldNodeAddressDict = nodeAddressDict.copy()
+        #clear the current nodeAddressDict
+        nodeAddressDict.clear()
+        #clear the current shardAddresses dict, too, since nodes can be assigned new shards
+        shardAddressesDict.clear()
 
-        #send the new view to members of the old view
-        for shard, address in oldShardAddressDict.items():
+        #broadcast the new view to members of the old view
+        for node, address in oldNodeAddressDict.items():
             #build URL, send updateView PUT
             baseUrl = ('http://' + address + '/kvs/updateView')
             #send the put request with the viewString
-            r = requests.put(baseUrl, json={'view' : viewString})
+            r = requests.put(baseUrl, json={'view' : viewString, 'repl-factor' : replFactor})
+            #should effective 0 timeout, because we don't know who is up or down and don't care about responses
 
         #send the new view to all members of the new view, which may have repeats
         #but will certainly include the nodes that were excluded by only sending the message
         #to the old group of nodes.
         for address in viewArray:
             baseUrl = ('http://' + address + '/kvs/updateView')
-            r = requests.put(baseUrl, json={'view' : viewString})
+            r = requests.put(baseUrl, json={'view' : viewString, 'repl-factor' : replFactor})
+            #should use effective 0 timeout, because we don't know who is up.
+            #everyone SHOULD be up according to Aleck here: https://cse138-fall20.slack.com/archives/C01FKJLRZKN/p1606788502063700?thread_ts=1606788354.060500&cid=C01FKJLRZKN
         
 
-        #update the shardAddressDict with the current view
+        #update the nodeAddressDict with the current list of addresses
         i = 1
         for address in viewArray:
-            shardAddressDict.update({"node" + str(i) : address})
+            nodeAddressDict.update({"node" + str(i) : address})
             i += 1
         #if we're the last one updated, that probably helps guard against sending stuff to unupdated nodes
-        #next assignment maybe we need ACKs?
 
         #copy the current keyShardDict
+        #might want to send a request to pull all keys in case we're missing some
         tempKeyShardDict = keyShardDict.copy()
         #clear the keyShardDict to be updated with new {key : value} pairs
         keyShardDict.clear()
 
+        nodeList = []
+        #get list of addresses to put on shards
+        for node, address in shardAddressDict.items():
+            nodeList.append(node)
+
+        #decide number of shards to distribute keys to
+        numShards = len(nodeAddressDict) / replFactor
+        shardCounter = 1
         shardList = []
-        #get list of shards to distribute keys to
-        for shard, address in shardAddressDict.items():
-            shardList.append(shard)
+        for i in range(numShards):
+            emptyTempList = []
+            shardID = "shard" + str(shardCounter)
+            shardAddressesDict.update({shardID, emptyTempList})
+            shardList.append(shardID)
+            shardCounter += 1
+
+        #assign replFactor nodes to each shard
+        nodeCount = 0
+        shardCounter = 1
+        for node, address in nodeAddressDict.items():
+            if nodeCount == replFactor:
+                nodeCount = 0
+                shardCounter += 1
+            shardID = "shard" + str(shardCounter)
+            tempList = shardAddressesDict.get(shardID)
+            tempList.append(address)
+            shardAddressDict.update({shardID : tempList})
+            nodeCount += 1
+
 
         #round-robin redistribute keys to the local keyShardDict
         a = 0
@@ -511,7 +544,7 @@ def putViewChange():
             a += 1
 
         #send the new keyShardDict to members of the old view
-        for shard, address in oldShardAddressDict.items():
+        for node, address in oldNodeAddressDict.items():
             #build URL, send updateKeyShard PUT
             baseUrl = ('http://' + address + '/kvs/updateKeyShard')
             #serialize the dictionary
@@ -528,34 +561,41 @@ def putViewChange():
         #send a rearrangeKeys() type of broadcast
         #tell everyone in the old view to send their keys to the correct place
         #then delete them from local
-        for shard, address in oldShardAddressDict.items():
+        for node, address in oldNodeAddressDict.items():
             #build URL, send rearrangeKeys PUT
-            baseUrl = ('http://' + address + '/kvs/rearrangeKeys')
+            baseUrl = ('http://' + address + '/kvs/rearrangeKeys') #TODO: update rearrangeKeys to work with replication
             #send the PUT request, doesn't need additional data
             r = requests.put(baseUrl)
 
         #send a rearrangeKeys() broadcast to everyone in the new view
         #tell everyone in the new view to send their keys to the right place and delete them
         for address in viewArray:
-            baseUrl = ('http://' + address + '/kvs/rearrangeKeys')
+            baseUrl = ('http://' + address + '/kvs/rearrangeKeys') #TODO: update rearrangeKeys to work with replication
             r = requests.put(baseUrl)
 
         #all dicts should be up-to-date, all nodes should have the correct {key : value} pairs
         #get the address and keyCount of every node, then return to client
 
-        #create and reply with couples of {address : keyCount}
+        #create and reply with {message="View change successful", shards=[{shard-id, key-count, replicas}]}
+        shardList.clear()
         #list of dictionaries to be returned in json
         dictList = []
-        for shard, address in shardAddressDict.items():
-            #{"address" : address, "key-count" : keyCount} dict
-            keyCounts = {}
-            baseUrl = ('http://' + address + '/kvs/key-count')
-            r = requests.get(baseUrl)
-            currentKeyCount = r.json().get('key-count')
-            keyCounts.update({'address' : address})
-            keyCounts.update({'key-count' : currentKeyCount})
-            dictList.append(keyCounts)
-
+        for shard, addresses in shardAddressesDict.items():
+            keyCount = None
+            retDict = {}
+            addressList = []
+            retDict.update({'shard-id' : shard})
+            retDict.update({'replicas' : addresses})
+            for address in addresses:
+                addressList.append(address)
+                if keyCount is not None:
+                    pass
+                else:
+                    baseUrl = ('http://' + address + '/kvs/key-count')
+                    r = requests.get(baseUrl)
+                    keyCount = r.json().get('key-count')
+            retDict.update({'key-count' : keyCount})
+            dictList.append(retDict)
 
         return jsonify(
             message="View change successful",
