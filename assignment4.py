@@ -177,8 +177,8 @@ def kvs(key):
                 whichShard = decideShard()
                 #get the list of addresses for the shard we will put it in
                 correctKeyAddresses = shardAddressesDict.get(whichShard)
-                print("correctKeyAddresses", file=sys.stderr)
-                print(correctKeyAddresses, file=sys.stderr)
+                #print("correctKeyAddresses", file=sys.stderr)
+                #print(correctKeyAddresses, file=sys.stderr)
 
                 isRequestGood = None
                 #forward the request, and ask nodes on shard to check if its valid or not before modifying keyShard
@@ -187,13 +187,13 @@ def kvs(key):
                         pass
                     else:
                         timeoutVal = 5 / replFactor
-                        print(timeoutVal, file=sys.stderr)
+                        #print(timeoutVal, file=sys.stderr)
                         baseUrl = ('http://' + address + '/kvs/isRequestValidToShard/' + key)
                         try:
                             print("before request", file=sys.stderr)
                             r = None
                             try:
-                                r = requests.put(baseUrl, json={'value' : request.get_json().get('value')})
+                                r = requests.put(baseUrl, json={'value' : request.get_json().get('value')}, timeout=timeoutVal)
                                 isRequestGood = r.json().get('isRequestGood')
                             except:
                                 #print("Error:", file=sys.stderr)
