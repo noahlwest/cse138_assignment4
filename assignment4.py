@@ -56,8 +56,8 @@ def decideNodeToShard():
         shardAddressesDict.update({ shardID : nodesList })
         #increment counter to say how many replicas on this shard
         replFactorCounter += 1
-    
-        
+
+
 
 #getLocalKeyCount()
 #gets the local keycount by getting the length of localKvsDict
@@ -170,7 +170,7 @@ def kvs(key):
             #        error="Key is too long",
             #        message="Error in PUT"
             #    ), 400
-            
+
             #if it doesn't belong to a shard yet
             if(whichShard is None):
                 #decide which shard to put this new key
@@ -235,11 +235,11 @@ def kvs(key):
                         except:
                             pass
                             #error means node is down
-                
+
                 #we should be okay to send a normal PUT request now, since the shards
                 #all know where the key belongs, and it should miss this (whichShard is None) logic block.
                 #we can fall through into the next "block" since it just sends a normal PUT
-                
+
 
             #else: valid request and key is allocated to a shard
             #get the addresses of nodes on the shard with the key-value pair
@@ -284,11 +284,11 @@ def kvs(key):
                     replaced=True,
                     address=successAddress
                 ), 200
-        
+
         #if(request.method == 'DELETE'):
 
     #else: work locally
-    
+
     #local handling of GET
     if(request.method == 'GET'):
         #check if value exists
@@ -336,7 +336,7 @@ def kvs(key):
             updated = True
         else:
             created = True
-        
+
         localKvsDict.update({key:value})
 
         if(created == True):
@@ -356,7 +356,7 @@ def kvs(key):
     #local handling of DELETE
     #if(request.method == 'DELETE'):
     #----------------------------------
-        
+
 
 #behavior for /kvs/updateKey
 @app.route('/kvs/updateKey', methods = ['PUT'])
@@ -369,7 +369,7 @@ def updateKey():
         return jsonify(
             message="OK"
         ), 200
-    
+
     #delete key
     #if(request.method == 'DELETE'):
 
@@ -386,6 +386,24 @@ def getKeyCount():
         jsonObject = json.dumps(jsonDict)
         return jsonObject, 200
         #have to do it this way because the nice jsonify way doesn't work
+
+
+
+
+
+#behavior for /kvs/shards
+@app.route('/kvs/shards', methods = ['GET'])
+def getShards():
+    if(request.method == 'GET'):
+        numShards=len(nodeAddressDict)//replFactor
+        shardCounter = 1
+        shardList = []
+        for i in range(numShards):
+            emptyTempList = []
+            shardList.append(str(shardCounter))
+            shardCounter += 1
+
+        return jsonify(message="Shard membership retrieved successfully", shards=shardList), 200
 
 
 #behavior for /kvs/updateView
@@ -502,7 +520,7 @@ def putViewChange():
             r = requests.put(baseUrl, json={'view' : viewString, 'repl-factor' : replFactor})
             #should use effective 0 timeout, because we don't know who is up.
             #everyone SHOULD be up according to Aleck here: https://cse138-fall20.slack.com/archives/C01FKJLRZKN/p1606788502063700?thread_ts=1606788354.060500&cid=C01FKJLRZKN
-        
+
 
         #update the nodeAddressDict with the current list of addresses
         i = 1
@@ -568,7 +586,7 @@ def putViewChange():
             baseUrl = ('http://' + address + '/kvs/updateKeyShard')
             keyShardDictString = json.dumps(keyShardDict)
             r = requests.put(baseUrl, json={'keyShardDictString' : keyShardDictString})
-        
+
         #send a rearrangeKeys() type of broadcast
         #tell everyone in the old view to send their keys to the correct place
         #then delete them from local
@@ -613,13 +631,13 @@ def putViewChange():
             shards=dictList
         ), 200
 
-        
 
-#main driver 
-if __name__ == '__main__': 
+
+#main driver
+if __name__ == '__main__':
     #string of this node's IP:port
     selfAddress = os.getenv('ADDRESS')
-    
+
     #string of the view
     viewString = os.getenv('VIEW')
 
@@ -639,7 +657,7 @@ if __name__ == '__main__':
 
     #dictionary that holds {shard : [addresses]} to identify the addresses that belong to a shard
     shardAddressesDict = {}
-    
+
     viewArray = None
     if(viewString is not None):
         #turn viewString into array of addresses
@@ -676,6 +694,6 @@ if __name__ == '__main__':
         for address in addresses:
             if(selfAddress == address):
                 selfShardID = shard
-        
+
 
     app.run(host="0.0.0.0", port=13800, debug=True)
