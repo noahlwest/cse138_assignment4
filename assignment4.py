@@ -548,7 +548,7 @@ def putViewChange():
             nodeList.append(node)
 
         #decide number of shards to distribute keys to
-        numShards = len(nodeAddressDict) / replFactor
+        numShards = len(nodeAddressDict) // replFactor
         shardCounter = 1
         shardList = []
         for i in range(numShards):
