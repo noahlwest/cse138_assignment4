@@ -395,13 +395,9 @@ def getKeyCount():
 @app.route('/kvs/shards', methods = ['GET'])
 def getShards():
     if(request.method == 'GET'):
-        numShards=len(nodeAddressDict)//replFactor
-        shardCounter = 1
         shardList = []
-        for i in range(numShards):
-            emptyTempList = []
-            shardList.append(str(shardCounter))
-            shardCounter += 1
+        for shard, address in shardAddressesDict.items():
+           shardList.append(shard)
 
         return jsonify(message="Shard membership retrieved successfully",
                         shards=shardList), 200
@@ -410,17 +406,25 @@ def getShards():
 
 
 #behavior for /kvs/shards/<id>
-@app.route('/kvs/shards/<id>', methods = ['GET'])
+@app.route('/kvs/shards/<string:id>', methods = ['GET'])
 def getShardInfo(id):
     if(request.method == 'GET'):
-        shardID = "shard" + str(id)
-        replicas = shardAddressesDict[shardID]
-        count = 0
-        for address in shardAddressesDict:
-            if shardAddressesDict[address] == shardID:
-                count = count + 1
+        replicas = shardAddressesDict[id]
+        count = None
+        for address in replicas:
+            if count is None:
+                timeoutVal = 5 / len(replicas) #something
+                baseUrl = ('http://' + address + '/kvs/key-count')
+                try:
+                    r = requests.get(baseUrl, timeout=timeoutVal)
+                    count = r.json().get('key-count')
+                except:
+                    pass
+            else:
+                break
+
         jsonDict = {"message": "Shard information retrieved successfully",
-                    "shard-id": selfShardID,
+                    "shard-id": id,
                     "key-count": count,
                     "replicas": replicas}
         jsonObject = json.dumps(jsonDict)
