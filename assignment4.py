@@ -23,11 +23,16 @@ def decideShard():
     for shard, addresses in shardAddressesDict.items():
         for address in addresses:
             baseUrl = ('http://' + address + '/kvs/key-count')
-            r = requests.get(baseUrl)
-            requestedKeyCount = r.json().get('key-count')
-            if(requestedKeyCount < minKeys):
-                minKeys = requestedKeyCount
-                whichShard = shard
+            try:
+                timeoutVal = 4 / len(shardAddressesDict) #4 seconds to have a nicer cushion
+                r = requests.get(baseUrl, timeout=timeoutVal)
+                requestedKeyCount = r.json().get('key-count')
+                if(requestedKeyCount < minKeys):
+                    minKeys = requestedKeyCount
+                    whichShard = shard
+            except:
+                pass #even if we fail it doesn't matter, but we want to fail in a timely manner
+            
     return whichShard
 
 #decideNodeToShard()
@@ -121,10 +126,10 @@ def kvs(key):
                 #get the url of the address and endpoint
                 baseUrl = ('http://' + address + '/kvs/keys/' + key)
                 #send GET to correct URL
-                timeoutVal = 5/replFactor
+                timeoutVal = 4/replFactor
                 r = None
                 try:
-                    r = requests.get(baseUrl, timeout=timeoutVal)
+                    r = requests.get(baseUrl, timeout=timeoutVal) #timeout is generous because we want a response
                 except:
                     #except means node is down, but there's nothing we can do
                     #besides try another node, so we pass
@@ -186,7 +191,7 @@ def kvs(key):
                     if isRequestGood == True:
                         pass
                     else:
-                        timeoutVal = 5 / replFactor
+                        timeoutVal = 4 / replFactor
                         #print(timeoutVal, file=sys.stderr)
                         baseUrl = ('http://' + address + '/kvs/isRequestValidToShard/' + key)
                         try:
@@ -194,6 +199,7 @@ def kvs(key):
                             r = None
                             try:
                                 r = requests.put(baseUrl, json={'value' : request.get_json().get('value')}, timeout=timeoutVal)
+                                #timeout is generous because we want a response
                                 isRequestGood = r.json().get('isRequestGood')
                             except:
                                 #print("Error:", file=sys.stderr)
@@ -230,7 +236,7 @@ def kvs(key):
                         baseUrl = ('http://' + address + '/kvs/updateKey')
                         #tell everyone <shard> contains <key>
                         try:
-                            r = requests.put(baseUrl, json={'shard' : whichShard, 'key' : key})
+                            r = requests.put(baseUrl, json={'shard' : whichShard, 'key' : key}, timeout=0.000001)
                             #set timeout to effective 0, because we don't care about response
                         except:
                             pass
@@ -249,10 +255,15 @@ def kvs(key):
             successAddress = None
             for address in correctKeyAddresses:
                 baseUrl = ('http://' + address + '/kvs/keys/' + key)
-                r = requests.put(baseUrl, json=request.get_json())
-                if statusCode is None:
-                    statusCode = r.status_code
-                    successAddress = address
+                timeoutVal = 4 / len(correctKeyAddresses)
+                try:
+                    r = requests.put(baseUrl, json=request.get_json(), timeout=timeoutVal)
+                    #timeout is generous because we want a response
+                    if statusCode is None:
+                        statusCode = r.status_code
+                        successAddress = address
+                except:
+                    pass
             #this block should only get hit if key didn't exist before
             #and we decide to place it locally
             if(whichShard == selfShardID): #don't send address in response
@@ -456,13 +467,22 @@ def rearrangeKeys():
             if (selfShardID != correctShardID):
                 for address in addressList:
                     baseUrl = ('http://' + address + '/kvs/keys/' + key)
-                    r = requests.put(baseUrl, json={'key' : key, 'value' : value})
+                    try:
+                        r = requests.put(baseUrl, json={'key' : key, 'value' : value}, timeout=0.000001)
+                        #timeout is set to effective 0 because we don't care about the response
+                    except:
+                        pass
+                    
                 del localKvsDict[key]
             #else, if it is the local shard, send to everyone else on this shard
             else:
                 for address in addressList:
                     baseUrl = ('http://' + address + '/kvs/keys/' + key)
-                    r = requests.put(baseUrl, json={'key' : key, 'value' : value})
+                    try:
+                        r = requests.put(baseUrl, json={'key' : key, 'value' : value}, timeout=0.000001)
+                        #timeout is set to effective 0 because we don't care about the response
+                    except:
+                        pass
                 #don't delete from local
 
         return "OK", 200
@@ -491,18 +511,23 @@ def putViewChange():
             #build URL, send updateView PUT
             baseUrl = ('http://' + address + '/kvs/updateView')
             #send the put request with the viewString
-            r = requests.put(baseUrl, json={'view' : viewString, 'repl-factor' : replFactor})
-            #should effective 0 timeout, because we don't know who is up or down and don't care about responses
+            try:
+                r = requests.put(baseUrl, json={'view' : viewString, 'repl-factor' : replFactor}, timeout=0.000001)
+                #should effective 0 timeout, because we don't know who is up or down and don't care about responses
+            except:
+                pass
 
         #send the new view to all members of the new view, which may have repeats
         #but will certainly include the nodes that were excluded by only sending the message
         #to the old group of nodes.
         for address in viewArray:
             baseUrl = ('http://' + address + '/kvs/updateView')
-            r = requests.put(baseUrl, json={'view' : viewString, 'repl-factor' : replFactor})
-            #should use effective 0 timeout, because we don't know who is up.
-            #everyone SHOULD be up according to Aleck here: https://cse138-fall20.slack.com/archives/C01FKJLRZKN/p1606788502063700?thread_ts=1606788354.060500&cid=C01FKJLRZKN
-        
+            try:
+                r = requests.put(baseUrl, json={'view' : viewString, 'repl-factor' : replFactor}, timeout=0.000001)
+                #should use effective 0 timeout, because we don't know who is up and don't care about responses
+                #everyone SHOULD be up according to Aleck here: https://cse138-fall20.slack.com/archives/C01FKJLRZKN/p1606788502063700?thread_ts=1606788354.060500&cid=C01FKJLRZKN
+            except:
+                pass
 
         #update the nodeAddressDict with the current list of addresses
         i = 1
@@ -561,28 +586,41 @@ def putViewChange():
             #serialize the dictionary
             keyShardDictString = json.dumps(keyShardDict)
             #send the dictionary to everyone
-            r = requests.put(baseUrl, json={'keyShardDictString' : keyShardDictString})
+            r = requests.put(baseUrl, json={'keyShardDictString' : keyShardDictString}, timeout=0.000001)
+            #timeout set to effective 0 because we try to send, but we don't care about the response
 
         #send the new keyShardDict to members of the new view (will have repeats)
         for address in viewArray:
             baseUrl = ('http://' + address + '/kvs/updateKeyShard')
             keyShardDictString = json.dumps(keyShardDict)
-            r = requests.put(baseUrl, json={'keyShardDictString' : keyShardDictString})
+            try:
+                r = requests.put(baseUrl, json={'keyShardDictString' : keyShardDictString}, timeout=0.000001)
+                #timeout set to effective 0 because we try to send, but we don't care about the response
+            except:
+                pass
         
         #send a rearrangeKeys() type of broadcast
         #tell everyone in the old view to send their keys to the correct place
         #then delete them from local
         for node, address in oldNodeAddressDict.items():
             #build URL, send rearrangeKeys PUT
-            baseUrl = ('http://' + address + '/kvs/rearrangeKeys') #TODO: update rearrangeKeys to work with replication
+            baseUrl = ('http://' + address + '/kvs/rearrangeKeys')
             #send the PUT request, doesn't need additional data
-            r = requests.put(baseUrl)
+            try:
+                r = requests.put(baseUrl, timeout=0.000001)
+                #timeout set to effective 0 because we try to send, but don't care about the response
+            except:
+                pass
 
         #send a rearrangeKeys() broadcast to everyone in the new view
         #tell everyone in the new view to send their keys to the right place and delete them
         for address in viewArray:
-            baseUrl = ('http://' + address + '/kvs/rearrangeKeys') #TODO: update rearrangeKeys to work with replication
-            r = requests.put(baseUrl)
+            baseUrl = ('http://' + address + '/kvs/rearrangeKeys')
+            try:
+                r = requests.put(baseUrl, timeout=0.000001)
+                #timeout set to effective 0 because we try to send, but don't care about the response
+            except:
+                pass
 
         #all dicts should be up-to-date, all nodes should have the correct {key : value} pairs
         #get the address and keyCount of every node, then return to client
@@ -603,8 +641,12 @@ def putViewChange():
                     pass
                 else:
                     baseUrl = ('http://' + address + '/kvs/key-count')
-                    r = requests.get(baseUrl)
-                    keyCount = r.json().get('key-count')
+                    timeoutVal = 4 / len(addresses)
+                    try:
+                        r = requests.get(baseUrl, timeout=timeoutVal) #timeout is generous because we care about the response
+                        keyCount = r.json().get('key-count')
+                    except:
+                        pass
             retDict.update({'key-count' : keyCount})
             dictList.append(retDict)
 
