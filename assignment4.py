@@ -586,8 +586,11 @@ def putViewChange():
             #serialize the dictionary
             keyShardDictString = json.dumps(keyShardDict)
             #send the dictionary to everyone
-            r = requests.put(baseUrl, json={'keyShardDictString' : keyShardDictString}, timeout=0.000001)
-            #timeout set to effective 0 because we try to send, but we don't care about the response
+            try:
+                r = requests.put(baseUrl, json={'keyShardDictString' : keyShardDictString}, timeout=0.000001)
+                #timeout set to effective 0 because we try to send, but we don't care about the response
+            except:
+                pass
 
         #send the new keyShardDict to members of the new view (will have repeats)
         for address in viewArray:
