@@ -1,16 +1,9 @@
 #imports
-import os, requests, sys, json
+import os, requests, sys, json, datetime
 from flask import Flask, jsonify, request, Response
 
 #create app with flask
 app = Flask(__name__)
-
-#basic structure:
-#receive request
-#   determine whether to work locally or request remote work
-#   verify request
-#   if necessary, send requests
-#   return to client
 
 #decideShard()
 #decides which shard a new key should belong to
@@ -97,6 +90,19 @@ def isRequestValidToShard(key):
     return jsonify(
         isRequestGood=True
     ), 200
+
+#getKeyWithContext
+#used to get a key/value pair from a node, with a timestamp for context
+@app.route('/kvs/getKeyWithContext/<string:key>', methods = ['PUT'])
+def getKeyWithContext(key):
+    ourTime = keyTimeDict.get(key)
+    if(ourTime is None):
+        return "No context", 204
+    else:
+        return jsonify(
+            value=localKvsDict.get(key)
+            time=ourTime
+        ), 200
 
 
 #behavior for /kvs/keys
@@ -304,19 +310,96 @@ def kvs(key):
     if(request.method == 'GET'):
         #check if value exists
         if(localKvsDict.get(key) is None):
-            return jsonify(
-                doesExist=False,
-                error="Key does not exist",
-                message="Error in GET"
-            ), 404
+            #causal context does not need updated
+            causalContextString = request.get_json().get("causal-context")
+            jsonDict = {
+                "doesExist" : False,
+                "error" : "Key does not exist",
+                "message" : "Error in GET",
+                "causal-context" : causalContextString
+            }
+            jsonObject = json.dumps(jsonDict)
+            return jsonObject, 404
 
         #value exists
-        value = localKvsDict.get(key)
-        return jsonify(
-            doesExist=True,
-            message="Retrieved successfully",
-            value=value
-        ), 200
+        #check if our version is outdated, by comparing against the causal-context from client
+        #get local timestamp
+        ourTime = keyTimeDict.get(key)
+        #get causal context's timestamp
+        causalContextString = request.get_json().get("causal-context")
+        causalContextDict = json.loads(causalContextString)
+        theirTime = causalContextDict.get(key)
+        #if they have no causal context for this key, or our context is exactly equal or more recent
+        if((theirTime is None and ourTime is not None) or (ourTime >= theirTime)):
+            #give the client our value
+            value = localKvsDict.get(key)
+            #update the causal context to have our time
+            retArray = [ourTime, selfShardID]
+            causalContextDict.update({key: retArray})
+            causalContextString = json.dumps(causalContextDict)
+            jsonDict = {
+                "doesExist" : True,
+                "message" : "Retrieved successfully",
+                "value" : value,
+                "causal-context" : causalContextString
+            }
+            return jsonify(
+                doesExist=True,
+                message="Retrieved successfully",
+                value=value
+                #TODO: add causal context
+            ), 200
+        #else if we're both None (which should never happen)
+        elif(theirTime is None and ourTime is None):
+            value = localKvsDict.get(key)
+            return jsonify(
+                doesExist=True,
+                message="Retrieved successfully",
+                value=value
+                #leave out causal context?
+            ), 200
+        #else: client has a context and it's more up-to-date than ours, or we are None and they are not
+        else:
+            #try to retrieve the updated value from the other members of our shard
+            addresses = shardAddressesDict.get(selfShardID)
+            updatedVal = None
+            for address in addresses:
+                baseUrl = ('http://' + address + '/kvs/getKeyWithContext/' + key)
+                timeoutVal = 5 / len(addresses)
+                try:
+                    r = requests.put(baseUrl, timeout=timeoutVal)
+                    theirTime = r.get_json().get("time")
+                    if(theirTime > ourTime):
+                        ourTime = theirTime
+                        updatedVal = r.get_json().get("value")
+                except:
+                    pass
+            #update our local values
+            #overwrite the local time with the correct time (even if it's the same time)
+            keyTimeDict.update({key, ourTime})
+            #update our value, if their value is newer
+            if(updatedVal is not None):
+                localKvsDict.update({key, updatedVal})
+            #return the correct value, with an updated causal-context
+            causalList = [ourTime, selfShardID]
+            #update our causal-context obj
+            causalContextDict.update({key: causalList})
+            #serialize our causal-context obj
+            causalContextString = json.dumps(causalContextDict)
+            jsonDict = {
+                "message" : "Retrieved successfully",
+                "doesExist" : True,
+                "value" : localKvsDict.get(key),
+                #address is local, don't add
+                "causal-context" : causalContextString
+            }
+            jsonObject = json.dumps(jsonDict)
+            return jsonObject, 200
+
+            
+
+
+        
     #----------------------------------
 
     #----------------------------------
@@ -399,9 +482,6 @@ def getKeyCount():
         #have to do it this way because the nice jsonify way doesn't work
 
 
-
-
-
 #behavior for /kvs/shards
 @app.route('/kvs/shards', methods = ['GET'])
 def getShards():
@@ -412,8 +492,6 @@ def getShards():
 
         return jsonify(message="Shard membership retrieved successfully",
                         shards=shardList), 200
-
-
 
 
 #behavior for /kvs/shards/<id>
@@ -442,9 +520,6 @@ def getShardInfo(id):
         return jsonObject, 200
 
 
-
-
-
 #behavior for /kvs/updateView
 #expects to receive a view string
 @app.route('/kvs/updateView', methods=['PUT'])
@@ -456,7 +531,7 @@ def updateView():
         shardAddressesDict.clear()
 
         i = 1
-        #update shardAddressDict
+        #update nodeAddressDict
         for address in viewArray:
             nodeAddressDict.update({"node" + str(i) : address})
             i += 1
@@ -590,7 +665,7 @@ def putViewChange():
 
         nodeList = []
         #get list of addresses to put on shards
-        for node, address in shardAddressDict.items():
+        for node, address in nodeAddressDict.items():
             nodeList.append(node)
 
         #decide number of shards to distribute keys to
@@ -614,7 +689,7 @@ def putViewChange():
             shardID = "shard" + str(shardCounter)
             tempList = shardAddressesDict.get(shardID)
             tempList.append(address)
-            shardAddressDict.update({shardID : tempList})
+            shardAddressesDict.update({shardID : tempList})
             nodeCount += 1
 
 
@@ -761,6 +836,11 @@ if __name__ == '__main__':
 
     #value to decide which shard the local node is in respect to the view
     selfShardID = "default" #default value of "default" to indicate error
+
+    #causal context object should be <key: [timestamp, shard]>
+    #<key : timestamp> held locally for checking for outdated timestamp
+    #timestamp is overwritten when value is overwritten
+    keyTimeDict = {}
 
     #decide which shardID belongs to local node
     for shard, addresses in shardAddressesDict.items():
