@@ -343,21 +343,21 @@ def kvs(key):
                 "value" : value,
                 "causal-context" : causalContextString
             }
-            return jsonify(
-                doesExist=True,
-                message="Retrieved successfully",
-                value=value
-                #TODO: add causal context
-            ), 200
+            jsonObject = json.dumps(jsonDict)
+            return jsonObject, 200
         #else if we're both None (which should never happen)
         elif(theirTime is None and ourTime is None):
             value = localKvsDict.get(key)
-            return jsonify(
-                doesExist=True,
-                message="Retrieved successfully",
-                value=value
-                #leave out causal context?
-            ), 200
+            causalContextString = ""
+            jsonDict = {
+                "doesExist" : True,
+                "message" : "Retrieved successfully",
+                "value" : value,
+                "causal-context" : causalContextString
+            }
+            jsonObject = json.dumps(jsonDict)
+            return jsonObject, 200
+            
         #else: client has a context and it's more up-to-date than ours, or we are None and they are not
         else:
             #try to retrieve the updated value from the other members of our shard
