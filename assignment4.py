@@ -403,7 +403,31 @@ def getShards():
             shardList.append(str(shardCounter))
             shardCounter += 1
 
-        return jsonify(message="Shard membership retrieved successfully", shards=shardList), 200
+        return jsonify(message="Shard membership retrieved successfully",
+                        shards=shardList), 200
+
+
+
+
+#behavior for /kvs/shards/<id>
+@app.route('/kvs/shards/<id>', methods = ['GET'])
+def getShardInfo(id):
+    if(request.method == 'GET'):
+        shardID = "shard" + str(id)
+        replicas = shardAddressesDict[shardID]
+        count = 0
+        for address in shardAddressesDict:
+            if shardAddressesDict[address] == shardID:
+                count = count + 1
+        jsonDict = {"message": "Shard information retrieved successfully",
+                    "shard-id": selfShardID,
+                    "key-count": count,
+                    "replicas": replicas}
+        jsonObject = json.dumps(jsonDict)
+        return jsonObject, 200
+
+
+
 
 
 #behavior for /kvs/updateView
