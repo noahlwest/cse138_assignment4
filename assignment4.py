@@ -220,10 +220,14 @@ def kvs(key):
                             #error, node is down. Nothing we can do, try next node
                 #no nodes reachable, return error
                 if isRequestGood == None:
-                    return jsonify(
-                        error="Unable to satisfy request",
-                        message="Error in PUT"
-                    ), 503
+                    causalContextString = request.get_json().get("causal-context")
+                    jsonDict = {
+                        "error" : "Unable to satisfy request",
+                        "message" : "Error in PUT",
+                        "causal-context" : causalContextString
+                    }
+                    jsonObject = json.dumps(jsonDict)
+                    return jsonObject, 503
 
                 #if it hits here, the request is confirmed valid and we can continue as normal
                 #tell ourselves where this key belongs
@@ -304,20 +308,26 @@ def kvs(key):
             #if created
             if(r.status_code == 201):
                 #return response with added address
-                return jsonify(
-                    message="Added successfully",
-                    replaced=False,
-                    address=successAddress
-                ), 201
+                jsonDict = {
+                        "message" : "Added successfully",
+                        "replaced" : False,
+                        "address" : successAddress,
+                        "causal-context" : causalContextString
+                    }
+                jsonObject = json.dumps(jsonDict)
+                return jsonObject, 201
             #if updated
             if(r.status_code == 200):
                 #Even though it's not on spec, IP is added because Aleck told us to here:
                 # https://cse138-fall20.slack.com/archives/C01C01HF58S/p1605068093044400?thread_ts=1605067981.043200&cid=C01C01HF58S
-                return jsonify(
-                    message="Updated successfully",
-                    replaced=True,
-                    address=successAddress
-                ), 200
+                jsonDict = {
+                        "message" : "Updated successfully",
+                        "replaced" : True,
+                        "address" : successAddress,
+                        "causal-context" : causalContextString
+                    }
+                jsonObject = json.dumps(jsonDict)
+                return jsonObject, 200
 
         #if(request.method == 'DELETE'):
 
@@ -404,11 +414,16 @@ def kvs(key):
             #update our value, if their value is newer
             if(updatedVal is not None):
                 localKvsDict.update({key, updatedVal})
-            #no updatedVal, we couldn't contact anyone.
-            #TODO: NACK here?
+            #no updatedVal, we couldn't contact anyone; NACK
             else:
-                pass 
-                #TODO: fill this in
+                causalContextString = request.get_json().get("causal-context")
+                jsonDict = {
+                    "error" : "Unable to satisfy request",
+                    "message" : "Error in PUT",
+                    "causal-context" : request.get_json().get("causal-context")
+                }
+                jsonObject = json.dumps(jsonDict)
+                return jsonObject, 503
             #return the correct value, with an updated causal-context
             keyInfo = [ourTime, selfShardID]
             #update our causal-context obj
@@ -419,7 +434,6 @@ def kvs(key):
                 "message" : "Retrieved successfully",
                 "doesExist" : True,
                 "value" : localKvsDict.get(key),
-                #address is local, don't add
                 "causal-context" : causalContextString
             }
             jsonObject = json.dumps(jsonDict)
