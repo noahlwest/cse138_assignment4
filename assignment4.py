@@ -328,14 +328,19 @@ def kvs(key):
         #get causal context's timestamp
         causalContextString = request.get_json().get("causal-context")
         causalContextDict = json.loads(causalContextString)
-        theirTime = causalContextDict.get(key)
-        #if they have no causal context for this key, or our context is exactly equal or more recent
-        if((theirTime is None and ourTime is not None) or (ourTime >= theirTime)):
+        keyInfo = causalContextDict.get(key)
+        theirTime = None
+        if(keyInfo is not None):
+            theirTime = keyInfo.get(timestampSlot)
+        else:
+            pass
+        #if they have context, and ours is the same or better
+        if((theirTime is not None and ourTime is not None) and (ourTime >= theirTime)):
             #give the client our value
             value = localKvsDict.get(key)
             #update the causal context to have our time
-            retArray = [ourTime, selfShardID]
-            causalContextDict.update({key: retArray})
+            keyInfo = [ourTime, selfShardID]
+            causalContextDict.update({key: keyInfo})
             causalContextString = json.dumps(causalContextDict)
             jsonDict = {
                 "doesExist" : True,
@@ -345,10 +350,13 @@ def kvs(key):
             }
             jsonObject = json.dumps(jsonDict)
             return jsonObject, 200
-        #else if we're both None (which should never happen)
-        elif(theirTime is None and ourTime is None):
+        #else if client context is None
+        elif(theirTime is None):
+            #give the client our local value
             value = localKvsDict.get(key)
-            causalContextString = ""
+            keyInfo = [ourTime, selfShardID]
+            causalContextDict.update({key: keyInfo})
+            causalContextString = json.dumps(causalContextDict)
             jsonDict = {
                 "doesExist" : True,
                 "message" : "Retrieved successfully",
@@ -357,7 +365,6 @@ def kvs(key):
             }
             jsonObject = json.dumps(jsonDict)
             return jsonObject, 200
-            
         #else: client has a context and it's more up-to-date than ours, or we are None and they are not
         else:
             #try to retrieve the updated value from the other members of our shard
@@ -380,10 +387,14 @@ def kvs(key):
             #update our value, if their value is newer
             if(updatedVal is not None):
                 localKvsDict.update({key, updatedVal})
+            #no updatedVal, we couldn't contact anyone.
+            #TODO: NACK here?
+            else: 
+                #TODO: fill this in
             #return the correct value, with an updated causal-context
-            causalList = [ourTime, selfShardID]
+            keyInfo = [ourTime, selfShardID]
             #update our causal-context obj
-            causalContextDict.update({key: causalList})
+            causalContextDict.update({key: keyInfo})
             #serialize our causal-context obj
             causalContextString = json.dumps(causalContextDict)
             jsonDict = {
@@ -394,12 +405,7 @@ def kvs(key):
                 "causal-context" : causalContextString
             }
             jsonObject = json.dumps(jsonDict)
-            return jsonObject, 200
-
-            
-
-
-        
+            return jsonObject, 200 
     #----------------------------------
 
     #----------------------------------
@@ -409,17 +415,25 @@ def kvs(key):
         #if request has no valid value
         value = request.get_json().get('value')
         if(value is None):
-            return jsonify(
-                error="Value is missing",
-                message="Error in PUT"
-            ), 400
+            causalContextString = request.get_json().get('causal-context')
+            jsonDict = {
+                "error" : "Value is missing",
+                "message" : "Error in PUT",
+                "causal-context" : causalContextString
+            }
+            jsonObject = json.dumps(jsonDict)
+            return jsonObject, 400
 
         #if value is valid but key length >50
         if(len(key) > 50):
-            return jsonify(
-                error="Key is too long",
-                message="Error in PUT"
-            ), 400
+            causalContextString = request.get_json().get('causal-context')
+            jsonDict = {
+                "error" : "Key is too long",
+                "message" : "Error in PUT",
+                "causal-context" : causalContextString
+            }
+            jsonObject = json.dumps(jsonDict)
+            return jsonObject, 400
 
         #request key and value are valid
         updated = False
@@ -431,18 +445,31 @@ def kvs(key):
         else:
             created = True
 
-        localKvsDict.update({key:value})
-
+        value = request.get_json().get('value')
+        localKvsDict.update({key : value})
+        #update our local time for that variable
+        now = datetime.datetime.now()
+        #update the context
+        causalContextDict.update({key : now})
+        keyTimeDict.update({key : theirTime})
+        causalContextString = json.dumps(causalContextDict)
         if(created == True):
-            return jsonify(
-                message="Added successfully",
-                replaced=False
-            ), 201
+            jsonDict = {
+                "message" : "Added successfully",
+                "replaced" : False,
+                "causal-context" : causalContextString
+            }
+            jsonObject = json.dumps(jsonDict)
+            return jsonObject, 201
         else:
-            return jsonify(
-                message="Updated successfully",
-                replaced=True
-            ), 200
+            jsonDict = {
+                "message" : "Updated successfully",
+                "replaced" : True,
+                "causal-context" : causalContextString
+            }
+            jsonObject = json.dumps(jsonDict)
+            return jsonObject, 200
+
     #----------------------------------
 
     #----------------------------------
@@ -841,6 +868,8 @@ if __name__ == '__main__':
     #<key : timestamp> held locally for checking for outdated timestamp
     #timestamp is overwritten when value is overwritten
     keyTimeDict = {}
+    timestampSlot = 0
+    shardSlot = 1
 
     #decide which shardID belongs to local node
     for shard, addresses in shardAddressesDict.items():
