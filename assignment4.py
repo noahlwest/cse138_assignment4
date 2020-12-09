@@ -1,5 +1,5 @@
 #imports
-import os, requests, sys, json, datetime
+import os, requests, sys, json, datetime, time
 from flask import Flask, jsonify, request, Response
 
 #create app with flask
@@ -14,12 +14,18 @@ def decideShard():
     whichShard = selfShardID #defaults to local shardID
     #for each shard, see who has the least amount of keys
     for shard, addresses in shardAddressesDict.items():
+        haveKeyCount = False
         for address in addresses:
+            if (haveKeyCount == True):
+                break
             baseUrl = ('http://' + address + '/kvs/key-count')
             try:
-                timeoutVal = 4 / len(shardAddressesDict) #4 seconds to have a nicer cushion
+                timeoutVal = 4 / (len(shardAddressesDict) * replFactor) #4 seconds to have a nicer cushion
                 r = requests.get(baseUrl, timeout=timeoutVal)
                 requestedKeyCount = r.json().get('key-count')
+                if(requestedKeyCount is not None):
+                    haveKeyCount == True
+
                 if(requestedKeyCount < minKeys):
                     minKeys = requestedKeyCount
                     whichShard = shard
@@ -136,7 +142,7 @@ def kvs(key):
                 #get the url of the address and endpoint
                 baseUrl = ('http://' + address + '/kvs/keys/' + key)
                 #send GET to correct URL
-                timeoutVal = 4/replFactor
+                timeoutVal = 4 / len(correctKeyAddresses)
                 r = None
                 try:
                     r = requests.get(baseUrl, timeout=timeoutVal) #timeout is generous because we want a response
@@ -189,23 +195,22 @@ def kvs(key):
                     if isRequestGood == True:
                         break
                     else:
-                        timeoutVal = 4 / replFactor
+                        timeoutVal = 4 / len(correctKeyAddresses)
                         #print(timeoutVal, file=sys.stderr)
                         baseUrl = ('http://' + address + '/kvs/isRequestValidToShard/' + key)
                         try:
-                            print("before request", file=sys.stderr)
                             r = None
                             try:
                                 r = requests.put(baseUrl, json={'value' : request.get_json().get('value')}, timeout=timeoutVal)
                                 #timeout is generous because we want a response
                                 isRequestGood = r.json().get('isRequestGood')
                             except:
-                                #print("Error:", file=sys.stderr)
-                                #print(str(sys.exc_info()[0]), file=sys.stderr)
+                                print("Error:" + str(sys.exc_info()[0]), file=sys.stderr)
                                 pass
 
                             if isRequestGood == False:
                                 #return error
+                                print("isRequestGood == False", file=sys.stderr)
                                 causalContextString = request.get_json().get("causal-context")
                                 jsonDict ={
                                     "message": r.json().get("message"),
@@ -220,6 +225,7 @@ def kvs(key):
                             #error, node is down. Nothing we can do, try next node
                 #no nodes reachable, return error
                 if isRequestGood == None:
+                    print("isRequestGood == None", file=sys.stderr)
                     causalContextString = request.get_json().get("causal-context")
                     jsonDict = {
                         "error" : "Unable to satisfy request",
@@ -253,6 +259,7 @@ def kvs(key):
             #else: valid request and key is allocated to a shard
             #get the addresses of nodes on the shard with the key-value pair
             correctKeyAddresses = shardAddressesDict.get(whichShard)
+            #print("correctKeyAddresses: " + str(correctKeyAddresses), file=sys.stderr)
             #send to all the nodes on the shard
             statusCode = None
             successAddress = None
@@ -261,20 +268,45 @@ def kvs(key):
                 baseUrl = ('http://' + address + '/kvs/keys/' + key)
                 timeoutVal = 4 / len(correctKeyAddresses)
                 try:
-                    myjsonDict = json.loads(request.get_json())
+                    myjsonDict = request.json
                     causalContextString = request.get_json().get("causal-context")
+                    if(causalContextString is None):
+                        #print("causalContextString: " + str(causalContextString), file=sys.stderr)
+                        causalContextDict = {}
+                        #now = datetime.datetime.now()
+                        now = time.time_ns()
+                        #print("now:" + str(now), file=sys.stderr)
+                        keyInfo = [now, whichShard]
+                        causalContextDict.update({key : keyInfo})
+                        #print("made it past .update() line", file=sys.stderr)
+                        causalContextString = json.dumps(causalContextDict)
+                        #print("made it past json.loads line", file=sys.stderr)
                     myjsonDict.update({"causal-context": causalContextString})
-                    myjsonObject = json.dumps(myjsonDict)
-                    r = requests.put(baseUrl, json=myjsonObject, timeout=timeoutVal)
+                    #myjsonObject = json.dumps(myjsonDict)
+                    #print("made it to request", file=sys.stderr)
+                    #print("myjsonObject: " + str(myjsonObject), file=sys.stderr)
+                    r = requests.put(baseUrl, json=myjsonDict, timeout=timeoutVal)
+                    print("passed the request", file=sys.stderr)
                     causalContextString = r.json().get("causal-context")
+                    print("causalContextString value: " + str(causalContextString), file=sys.stderr)
                     #timeout is generous because we want a response
                     if statusCode is None:
                         statusCode = r.status_code
                         successAddress = address
                 except:
+                    print("Error:", file=sys.stderr)
+                    print(str(sys.exc_info()[0]), file=sys.stderr)
                     pass
+            
+            #update our local time for the variable, which is the only one that will get missed
+            #and will only get missed if key didn't exist, and we decide it belongs to local shard.
+            #if(whichShard == selfShardID):
+
+                
+                
 
             if causalContextString is None:
+                print("causalContextString == None", file=sys.stderr)
                 jsonDict = {
                     "error" : "Unable to satisfy request",
                     "message" : "Error in PUT",
@@ -284,7 +316,7 @@ def kvs(key):
                 return jsonObject, 503
                 #return error, because we couldn't communicate with anyone
             #this block should only get hit if key didn't exist before
-            #and we decide to place it locally
+            #and we decided to place it locally
             if(whichShard == selfShardID): #don't send address in response
                 if(statusCode == 201):
                     #from the previous block of code, our causal context should be updated
@@ -353,9 +385,18 @@ def kvs(key):
         #get local timestamp
         ourTime = keyTimeDict.get(key)
         #get causal context's timestamp
-        causalContextString = request.get_json().get("causal-context")
-        causalContextDict = json.loads(causalContextString)
-        keyInfo = causalContextDict.get(key)
+        data = request.json
+        keyInfo = None
+        if(data is not None):
+            causalContextString = data.get("causal-context")
+            if(causalContextString is not None):
+                causalContextDict = json.loads(causalContextString)
+                keyInfo = causalContextDict.get(key)
+        else:
+            #no causal context
+            pass
+            
+
         theirTime = None
         if(keyInfo is not None):
             theirTime = keyInfo.get(timestampSlot)
@@ -382,6 +423,7 @@ def kvs(key):
             #give the client our local value
             value = localKvsDict.get(key)
             keyInfo = [ourTime, selfShardID]
+            causalContextDict = {}
             causalContextDict.update({key: keyInfo})
             causalContextString = json.dumps(causalContextDict)
             jsonDict = {
@@ -399,7 +441,7 @@ def kvs(key):
             updatedVal = None
             for address in addresses:
                 baseUrl = ('http://' + address + '/kvs/getKeyWithContext/' + key)
-                timeoutVal = 5 / len(addresses)
+                timeoutVal = 4 / len(addresses)
                 try:
                     r = requests.put(baseUrl, timeout=timeoutVal)
                     theirTime = r.get_json().get("time")
@@ -480,10 +522,19 @@ def kvs(key):
         value = request.get_json().get('value')
         localKvsDict.update({key : value})
         #update our local time for that variable
-        now = datetime.datetime.now()
+        #now = datetime.datetime.now()
+        now = time.time_ns()
         #update the context
-        causalContextDict.update({key : now})
-        keyTimeDict.update({key : theirTime})
+        causalContextString = request.get_json().get('causal-context')
+        causalContectDict = None
+        if(causalContextString is not None):
+            causalContextDict = json.loads(causalContextString)
+        else:
+            causalContextDict = {}
+
+        keyInfo = [now, selfShardID]
+        causalContextDict.update({key : keyInfo})
+        keyTimeDict.update({key : now})
         causalContextString = json.dumps(causalContextDict)
         if(created == True):
             jsonDict = {
@@ -561,7 +612,7 @@ def getShardInfo(id):
         count = None
         for address in replicas:
             if count is None:
-                timeoutVal = 5 / len(replicas) #something
+                timeoutVal = 4 / len(replicas) #something
                 baseUrl = ('http://' + address + '/kvs/key-count')
                 try:
                     r = requests.get(baseUrl, timeout=timeoutVal)
