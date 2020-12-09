@@ -100,7 +100,7 @@ def getKeyWithContext(key):
         return "No context", 204
     else:
         return jsonify(
-            value=localKvsDict.get(key)
+            value=localKvsDict.get(key),
             time=ourTime
         ), 200
 
@@ -161,26 +161,6 @@ def kvs(key):
 
         #non-local PUT
         if(request.method == 'PUT'):
-            #if there's no value in the json
-            #leave this validation up to the forwarded node
-            #TODO: ADD VALIDATION FOR THE LOCAL NODE
-            #value = request.get_json().get('value')
-            #if(value is None):
-            #    return jsonify(
-            #        error="Value is missing",
-            #        message="Error in PUT"
-            #    ), 400
-
-            #if the key is too long, arbitrarily, temporarily assign it to the local node
-            #and send a failure, since it won't belong anywhere ever.
-            #if the length is > 50
-            #leave this validation to the forwarded node
-            #TODO: ADD VALIDATION FOR THE LOCAL NODE
-            #if(len(key) > 50):
-            #    return jsonify(
-            #        error="Key is too long",
-            #        message="Error in PUT"
-            #    ), 400
 
             #if it doesn't belong to a shard yet
             if(whichShard is None):
@@ -195,7 +175,7 @@ def kvs(key):
                 #forward the request, and ask nodes on shard to check if its valid or not before modifying keyShard
                 for address in correctKeyAddresses:
                     if isRequestGood == True:
-                        pass
+                        break
                     else:
                         timeoutVal = 4 / replFactor
                         #print(timeoutVal, file=sys.stderr)
@@ -214,11 +194,12 @@ def kvs(key):
 
                             if isRequestGood == False:
                                 #return error
+                                causalContextString = request.get_json().get("causal-context")
                                 jsonDict ={
                                     "message": r.json().get("message"),
                                     "error": r.json().get("error"),
                                     "address": address,
-                                    #"causal-context": causalContextDict #TODO: add our causal context to this
+                                    "causal-context": causalContextString
                                 }
                                 jsonObject = json.dumps(jsonDict)
                                 return jsonObject, 400
@@ -259,30 +240,54 @@ def kvs(key):
             #send to all the nodes on the shard
             statusCode = None
             successAddress = None
+            causalContextString = None
             for address in correctKeyAddresses:
                 baseUrl = ('http://' + address + '/kvs/keys/' + key)
                 timeoutVal = 4 / len(correctKeyAddresses)
                 try:
-                    r = requests.put(baseUrl, json=request.get_json(), timeout=timeoutVal)
+                    myjsonDict = json.loads(request.get_json())
+                    causalContextString = request.get_json().get("causal-context")
+                    myjsonDict.update({"causal-context": causalContextString})
+                    myjsonObject = json.dumps(myjsonDict)
+                    r = requests.put(baseUrl, json=myjsonObject, timeout=timeoutVal)
+                    causalContextString = r.json().get("causal-context")
                     #timeout is generous because we want a response
                     if statusCode is None:
                         statusCode = r.status_code
                         successAddress = address
                 except:
                     pass
+
+            if causalContextString is None:
+                jsonDict = {
+                    "error" : "Unable to satisfy request",
+                    "message" : "Error in PUT",
+                    "causal-context" : request.get_json().get("causal-context")
+                }
+                jsonObject = json.dumps(jsonDict)
+                return jsonObject, 503
+                #return error, because we couldn't communicate with anyone
             #this block should only get hit if key didn't exist before
             #and we decide to place it locally
             if(whichShard == selfShardID): #don't send address in response
                 if(statusCode == 201):
-                    return jsonify(
-                        message="Added successfully",
-                        replaced=False
-                    ), 201
+                    #from the previous block of code, our causal context should be updated
+                    #and contained in causalContextString
+                    jsonDict = {
+                        "message" : "Added successfully",
+                        "replaced" : False,
+                        "causal-context" : causalContextString
+                    }
+                    jsonObject = json.dumps(jsonDict)
+                    return jsonObject, 201
                 if(statusCode == 200):
-                    return jsonify(
-                        message="Updated successfully",
-                        replaced=True
-                    ), 200
+                    jsonDict = {
+                        "message" : "Updated successfully",
+                        "replaced" : True,
+                        "causal-context" : causalContextString
+                    }
+                    jsonObject = json.dumps(jsonDict)
+                    return jsonObject, 200
             #if PUT is non-local
             #if created
             if(r.status_code == 201):
@@ -389,7 +394,8 @@ def kvs(key):
                 localKvsDict.update({key, updatedVal})
             #no updatedVal, we couldn't contact anyone.
             #TODO: NACK here?
-            else: 
+            else:
+                pass 
                 #TODO: fill this in
             #return the correct value, with an updated causal-context
             keyInfo = [ourTime, selfShardID]
