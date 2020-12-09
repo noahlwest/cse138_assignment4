@@ -119,11 +119,15 @@ def kvs(key):
         if(request.method == 'GET'):
             #if key/value pair does not exist: give 404 without address.
             if(whichShard is None):
-                return jsonify(
-                    doesExist=False,
-                    error="Key does not exist",
-                    message="Error in GET"
-                ), 404
+                causalContextString = request.get_json().get("causal-context")
+                jsonDict = {
+                    "doesExist" : False,
+                    "error" : "Key does not exist",
+                    "message" : "Error in GET",
+                    "causal-context" : causalContextString
+                }
+                jsonObject = json.dumps(jsonDict)
+                return jsonObject, 404
             #key/value pair DOES exist somewhere else:
             #get the list of addresses of the shard with the key-value pair
             correctKeyAddresses = shardAddressesDict.get(whichShard)
@@ -146,18 +150,26 @@ def kvs(key):
                 #if r is not None and we got back a value
                 if value is not None:
                     #no error-- must return valid response
-                    return jsonify(
-                        doesExist=True,
-                        message="Retrieved successfully",
-                        value=value,
-                        address=address
-                    ), 200
+                    causalContextString = request.get_json().get("causal-context")
+                    jsonDict = {
+                        "doesExist" : True,
+                        "message" : "Retrieved successfully",
+                        "value" : value,
+                        "address" : address,
+                        "causal-context" : causalContextString
+                    }
+                    jsonObject = json.dumps(jsonDict)
+                    return jsonObject, 200
                     #should end execution
             #if no node is reachable, send a fail message
-            return jsonify(
-                error="Unable to satisfy request",
-                message="Error in GET"
-            ), 503
+            causalContextString = request.get_json().get("causal-context")
+            jsonDict = {
+                "error" : "Unable to satisfy request",
+                "message" : "Error in GET",
+                "causal-context" : causalContextString
+            }
+            jsonObject = json.dumps(jsonDict)
+            return jsonObject, 503
 
         #non-local PUT
         if(request.method == 'PUT'):
