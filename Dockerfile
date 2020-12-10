@@ -6,6 +6,7 @@ COPY requirements.txt /requirements.txt
 RUN chmod +rwx assignment4.py
 RUN chmod +rwx requirements.txt
 
+RUN pip install apscheduler==2.1.2
 RUN pip install -r requirements.txt
 
 #CMD sleep infinity #used for debugging
