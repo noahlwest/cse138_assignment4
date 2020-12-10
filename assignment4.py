@@ -5,6 +5,9 @@ from flask import Flask, jsonify, request, Response
 #create app with flask
 app = Flask(__name__)
 
+#NOTE: jsonObject = json.dumps(jsonDict) is commented out in many places, and replaced with
+#   return jsonDict, [code]. If this doesn't fix anything, revert these changes.
+
 #decideShard()
 #decides which shard a new key should belong to
 #requests the key-count from every shard, assigns key to min key-count shard
@@ -141,8 +144,9 @@ def kvs(key):
                     "message" : "Error in GET",
                     "causal-context" : causalContextDict
                 }
-                jsonObject = json.dumps(jsonDict)
-                return jsonObject, 404
+                #jsonObject = json.dumps(jsonDict)
+                #return jsonObject, 404
+                return jsonDict, 404
             #key/value pair DOES exist somewhere else:
             #get the list of addresses of the shard with the key-value pair
             correctKeyAddresses = shardAddressesDict.get(whichShard)
@@ -159,9 +163,14 @@ def kvs(key):
                     #except means node is down, but there's nothing we can do
                     #besides try another node, so we pass
                     pass
+                value = None
                 #retrieve value, if r exists
                 if r is not None:
-                    value = r.json().get('value')
+                    try:
+                        if(r.json() is not None):
+                            value = r.json().get('value')
+                    except: #no json on request
+                        pass
                 #if r is not None and we got back a value
                 if value is not None:
                     #no error-- must return valid response
@@ -181,8 +190,9 @@ def kvs(key):
                         "address" : address,
                         "causal-context" : causalContextDict
                     }
-                    jsonObject = json.dumps(jsonDict)
-                    return jsonObject, 200
+                    #jsonObject = json.dumps(jsonDict)
+                    #return jsonObject, 200
+                    return jsonDict, 200
                     #should end execution
             #if no node is reachable, send a fail message
             if(request.get_json() is not None):
@@ -198,8 +208,9 @@ def kvs(key):
                 "message" : "Error in GET",
                 "causal-context" : causalContextDict
             }
-            jsonObject = json.dumps(jsonDict)
-            return jsonObject, 503
+            #jsonObject = json.dumps(jsonDict)
+            #return jsonObject, 503
+            return jsonDict, 503
 
         #non-local PUT
         if(request.method == 'PUT'):
@@ -256,8 +267,9 @@ def kvs(key):
                                     "address": address,
                                     "causal-context": causalContextDict
                                 }
-                                jsonObject = json.dumps(jsonDict)
-                                return jsonObject, 400
+                                #jsonObject = json.dumps(jsonDict)
+                                #return jsonObject, 400
+                                return jsonDict, 400
                         except:
                             pass
                             #error, node is down. Nothing we can do, try next node
@@ -277,8 +289,9 @@ def kvs(key):
                         "message" : "Error in PUT",
                         "causal-context" : causalContextDict
                     }
-                    jsonObject = json.dumps(jsonDict)
-                    return jsonObject, 503
+                    #jsonObject = json.dumps(jsonDict)
+                    #return jsonObject, 503
+                    return jsonDict, 503
 
                 #if it hits here, the request is confirmed valid and we can continue as normal
                 #tell ourselves where this key belongs
@@ -360,8 +373,9 @@ def kvs(key):
                     "message" : "Error in PUT",
                     "causal-context" : causalContextDict
                 }
-                jsonObject = json.dumps(jsonDict)
-                return jsonObject, 503
+                #jsonObject = json.dumps(jsonDict)
+                #return jsonObject, 503
+                return jsonDict, 503
                 #return error, because we couldn't communicate with anyone
             #this block should only get hit if key didn't exist before
             #and we decided to place it locally
@@ -374,16 +388,18 @@ def kvs(key):
                         "replaced" : False,
                         "causal-context" : causalContextDict
                     }
-                    jsonObject = json.dumps(jsonDict)
-                    return jsonObject, 201
+                    #jsonObject = json.dumps(jsonDict)
+                    #return jsonObject, 201
+                    return jsonDict, 201
                 if(statusCode == 200):
                     jsonDict = {
                         "message" : "Updated successfully",
                         "replaced" : True,
                         "causal-context" : causalContextDict
                     }
-                    jsonObject = json.dumps(jsonDict)
-                    return jsonObject, 200
+                    #jsonObject = json.dumps(jsonDict)
+                    #return jsonObject, 200
+                    return jsonDict, 200
             #if PUT is non-local
             #if created
             if(r.status_code == 201):
@@ -394,8 +410,9 @@ def kvs(key):
                         "address" : successAddress,
                         "causal-context" : causalContextDict
                     }
-                jsonObject = json.dumps(jsonDict)
-                return jsonObject, 201
+                #jsonObject = json.dumps(jsonDict)
+                #return jsonObject, 201
+                return jsonDict, 201
             #if updated
             if(r.status_code == 200):
                 #Even though it's not on spec, IP is added because Aleck told us to here:
@@ -406,8 +423,9 @@ def kvs(key):
                         "address" : successAddress,
                         "causal-context" : causalContextDict
                     }
-                jsonObject = json.dumps(jsonDict)
-                return jsonObject, 200
+                #jsonObject = json.dumps(jsonDict)
+                #return jsonObject, 200
+                return jsonDict, 200
 
         #if(request.method == 'DELETE'):
 
@@ -433,8 +451,9 @@ def kvs(key):
                 "message" : "Error in GET",
                 "causal-context" : causalContextDict
             }
-            jsonObject = json.dumps(jsonDict)
-            return jsonObject, 404
+            #jsonObject = json.dumps(jsonDict)
+            #return jsonObject, 404
+            return jsonDict, 404
 
         #value exists
         #check if our version is outdated, by comparing against the causal-context from client
@@ -471,8 +490,9 @@ def kvs(key):
                 "value" : value,
                 "causal-context" : causalContextDict
             }
-            jsonObject = json.dumps(jsonDict)
-            return jsonObject, 200
+            #jsonObject = json.dumps(jsonDict)
+            #return jsonObject, 200
+            return jsonDict, 200
         #else if client context is None
         elif(theirTime is None):
             #give the client our local value
@@ -486,8 +506,9 @@ def kvs(key):
                 "value" : value,
                 "causal-context" : causalContextDict
             }
-            jsonObject = json.dumps(jsonDict)
-            return jsonObject, 200
+            #jsonObject = json.dumps(jsonDict)
+            #return jsonObject, 200
+            return jsonDict, 200
         #else: client has a context and it's more up-to-date than ours, or we are None and they are not
         else:
             #try to retrieve the updated value from the other members of our shard
@@ -519,8 +540,9 @@ def kvs(key):
                     "message" : "Error in PUT",
                     "causal-context" : causalContextDict
                 }
-                jsonObject = json.dumps(jsonDict)
-                return jsonObject, 503
+                #jsonObject = json.dumps(jsonDict)
+                #return jsonObject, 503
+                return jsonDict, 503
             #return the correct value, with an updated causal-context
             keyInfo = [ourTime, selfShardID]
             #update our causal-context obj
@@ -532,8 +554,9 @@ def kvs(key):
                 "value" : localKvsDict.get(key),
                 "causal-context" : causalContextDict
             }
-            jsonObject = json.dumps(jsonDict)
-            return jsonObject, 200 
+            #jsonObject = json.dumps(jsonDict)
+            #return jsonObject, 200 
+            return jsonDict, 200
     #----------------------------------
 
     #----------------------------------
@@ -562,8 +585,9 @@ def kvs(key):
                 "message" : "Error in PUT",
                 "causal-context" : causalContextDict
             }
-            jsonObject = json.dumps(jsonDict)
-            return jsonObject, 400
+            #jsonObject = json.dumps(jsonDict)
+            #return jsonObject, 400
+            return jsonDict, 400
 
         #if value is valid but key length >50
         if(len(key) > 50):
@@ -581,8 +605,9 @@ def kvs(key):
                 "message" : "Error in PUT",
                 "causal-context" : causalContextDict
             }
-            jsonObject = json.dumps(jsonDict)
-            return jsonObject, 400
+            #jsonObject = json.dumps(jsonDict)
+            #return jsonObject, 400
+            return jsonDict, 400
 
         #request key and value are valid
         updated = False
@@ -617,16 +642,18 @@ def kvs(key):
                 "replaced" : False,
                 "causal-context" : causalContextDict
             }
-            jsonObject = json.dumps(jsonDict)
-            return jsonObject, 201
+            #jsonObject = json.dumps(jsonDict)
+            #return jsonObject, 201
+            return jsonDict, 201
         else:
             jsonDict = {
                 "message" : "Updated successfully",
                 "replaced" : True,
                 "causal-context" : causalContextDict
             }
-            jsonObject = json.dumps(jsonDict)
-            return jsonObject, 200
+            #jsonObject = json.dumps(jsonDict)
+            #return jsonObject, 200
+            return jsonDict, 200
 
     #----------------------------------
 
@@ -662,8 +689,9 @@ def getKeyCount():
         jsonDict = {"message": "Key count retrieved successfully",
                     "key-count": keyCount,
                     "shard-id": selfShardID}
-        jsonObject = json.dumps(jsonDict)
-        return jsonObject, 200
+        #jsonObject = json.dumps(jsonDict)
+        #return jsonObject, 200
+        return jsonDict, 200
         #have to do it this way because the nice jsonify way doesn't work
 
 
@@ -701,8 +729,9 @@ def getShardInfo(id):
                     "shard-id": id,
                     "key-count": count,
                     "replicas": replicas}
-        jsonObject = json.dumps(jsonDict)
-        return jsonObject, 200
+        #jsonObject = json.dumps(jsonDict)
+        #return jsonObject, 200
+        return jsonDict, 200
 
 
 #behavior for /kvs/updateView
@@ -728,8 +757,9 @@ def updateView():
         numShards = len(nodeAddressDict) // replFactor
         for i in range(numShards):
             shardID = "shard" + str(i + 1)
-            emptyTempList = []
-            shardAddressesDict.update({ shardID : emptyTempList})
+            #emptyTempList = []
+            #shardAddressesDict.update({ shardID : emptyTempList})
+            shardAddressesDict[shardID] = []
 
         #deterministically allocate nodes to shards in shardAddressesDict
         decideNodeToShard()
@@ -858,9 +888,10 @@ def putViewChange():
         shardCounter = 1
         shardList = []
         for i in range(numShards):
-            emptyTempList = []
+            #emptyTempList = []
             shardID = "shard" + str(shardCounter)
-            shardAddressesDict.update({shardID, emptyTempList})
+            shardAddressesDict[shardID] = []
+            #shardAddressesDict.update({shardID, emptyTempList})
             shardList.append(shardID)
             shardCounter += 1
 
@@ -1009,9 +1040,10 @@ if __name__ == '__main__':
         #create shardID to later reference shards
         shardID = "shard" + str(i + 1)
         #empty list for creating shardAddressesDict
-        emptyTempList = []
+        #emptyTempList = []
         #put shardID + empty list into dict
-        shardAddressesDict.update({ shardID : emptyTempList})
+        #shardAddressesDict.update({ shardID : emptyTempList})
+        shardAddressesDict[shardID] = []
 
     #allocate nodes to shards in shardAddressesDict
     decideNodeToShard()
