@@ -158,20 +158,17 @@ def kvs(key):
                 #send GET to correct URL
                 timeoutVal = 4 / len(correctKeyAddresses)
                 r = None
+                value = None
                 try:
                     r = requests.get(baseUrl, timeout=timeoutVal) #timeout is generous because we want a response
+                    #retrieve value, if r exists
+                    if r is not None:
+                        value = r.json().get('value')                  
                 except:
                     #except means node is down, but there's nothing we can do
                     #besides try another node, so we pass
                     pass
-                value = None
-                #retrieve value, if r exists
-                if r is not None:
-                    try:
-                        if(r.json() is not None):
-                            value = r.json().get('value')
-                    except: #no json on request
-                        pass
+
                 #if r is not None and we got back a value
                 if value is not None:
                     #no error-- must return valid response
@@ -325,12 +322,15 @@ def kvs(key):
             causalContextDict = None
             for address in correctKeyAddresses:
                 baseUrl = ('http://' + address + '/kvs/keys/' + key)
-                timeoutVal = 4 / (len(correctKeyAddresses) * 2)
+                timeoutVal = 4 #/ (len(correctKeyAddresses) * 2)
                 try:
                     myjsonDict = None
-                    if(request.get_json() is not None):
-                        myjsonDict = request.get_json()
-                        causalContextDict = request.get_json().get("causal-context")
+                    try:
+                        if(request.get_json() is not None):
+                            myjsonDict = request.get_json()
+                            causalContextDict = request.get_json().get("causal-context")
+                    except:
+                        pass
                     if(causalContextDict is None):
                         causalContextDict = {}
                         now = time.time_ns()
@@ -338,7 +338,7 @@ def kvs(key):
                         causalContextDict.update({key : keyInfo})
                     if(myjsonDict is None):
                         myjsonDict = {}
-
+                    #WTH am I doing here??
                     myjsonDict.update({"causal-context": causalContextDict})
                     r = requests.put(baseUrl, headers={"Content-Type": "application/json"}, json=myjsonDict, timeout=timeoutVal)
  
@@ -965,7 +965,7 @@ def putViewChange():
 
         #all dicts should be up-to-date, all nodes should have the correct {key : value} pairs
         #get the address and keyCount of every node, then return to client
-
+        time.sleep(1)
         #create and reply with {message="View change successful", shards=[{shard-id, key-count, replicas}]}
         shardList.clear()
         #list of dictionaries to be returned in json
@@ -1003,29 +1003,34 @@ def gossipCheck(key):
     #gossipDict: <key: [timestamp, value]
     timeSlot = 0
     valueSlot = 1
-    gossipDict = request.get_json().get('gossipDict')
-    otherKeyShardDict = request.get_json().get('keyShardDict')
+    gossipDict = None
+    otherKeyShardDict = otherKeyShardDict = request.get_json().get('keyShardDict')
+    try:
+        gossipDict = request.get_json().get('gossipDict')
+    except:
+        pass
 
-    #check keys from our replicas first
-    for key, keyInfoArray in gossipDict.items():
-        ourTime = keyTimeDict.get(key)
-        theirTime = keyInfoArray[timeSlot]
-        theirValue = keyInfoArray[valueSlot]
-        
-        #if we have no time (base causal context after reset)
-        if(time is None):
-            #update to gossip values
-            localKvsDict.update({key : theirValue})
-            keyTimeDict.update({key : theirTime})
-        else:
-            #if we do have a time, and it's less than the context time
-            if(time < theirTime):
-                #update our time to their time, our value to their value
-                keyTimeDict.update({key : theirTime})
+    if(gossipDict is not None):
+        #check keys from our replicas first
+        for key, keyInfoArray in gossipDict.items():
+            ourTime = keyTimeDict.get(key)
+            theirTime = keyInfoArray[timeSlot]
+            theirValue = keyInfoArray[valueSlot]
+            
+            #if we have no time (base causal context after reset)
+            if(time is None):
+                #update to gossip values
                 localKvsDict.update({key : theirValue})
+                keyTimeDict.update({key : theirTime})
             else:
-                #we have a time, and it matches or is greater than the context time
-                pass #do nothing
+                #if we do have a time, and it's less than the context time
+                if(time < theirTime):
+                    #update our time to their time, our value to their value
+                    keyTimeDict.update({key : theirTime})
+                    localKvsDict.update({key : theirValue})
+                else:
+                    #we have a time, and it matches or is greater than the context time
+                    pass #do nothing
                 
     #update keyShardDict
     for key, shard in otherKeyShardDict.items():
@@ -1078,19 +1083,13 @@ def gossip():
             except:
                 pass #we don't care if we timeout, we're just blasting out requests
 
-    # go through keys and shards to PUT updated keyTimeDict values
-    #for key in keyShardDict:
-    #    shard = keyShardDict[key]
-    #    for address in shardAddressesDict[shard]:
-    #        baseUrl = ('http://' + address + '/kvs/gossipCheck/' + key)
-    #
-    #        # feel free to adjust timeoutVal, I put in a random amount
-    #        timeoutVal = 4
-    #        passingDict = {}
-    #        r = requests.put(baseUrl, json={'keyTimeDict' : json.dumps(keyTimeDict)}, timeout=timeoutVal)
+    for node, address in nodeAddressDict.items():
+        baseUrl = ('http://' + address + '/kvs/gossipCheck')
+        try:
+            r = requests.put(baseUrl, json={'keyShardDict' : keyShardDict}, timeout=0.000001)
+        except:
+            pass
 
-# Shutdown your cron thread if the web process is stopped
-#atexit.register(lambda: cron.shutdown(wait=False))
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(func=gossip, trigger="interval", seconds=3)
@@ -1170,4 +1169,5 @@ if __name__ == '__main__':
                 selfShardID = shard
 
 
-    app.run(host="0.0.0.0", port=13800, debug=True)
+    #app.run(host="0.0.0.0", port=13800, debug=True)
+    app.run(host="0.0.0.0", port=13800)
