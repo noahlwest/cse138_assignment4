@@ -1,6 +1,7 @@
 #imports
-import os, requests, sys, json, datetime, time
+import os, requests, sys, json, datetime, time, atexit
 from flask import Flask, jsonify, request, Response
+from apscheduler.scheduler import Scheduler
 
 #create app with flask
 app = Flask(__name__)
@@ -994,6 +995,49 @@ def putViewChange():
             message="View change successful",
             shards=dictList
         ), 200
+
+
+# check if other value has been updated later than local value for key
+@app.route('/kvs/gossipCheck/<string:key>', methods = ['PUT'])
+def gossipCheck(key):
+    otherKeyTimeDict = json.loads(request.get_json.get('keyTimeDict'))
+    otherTime = otherKeyTimeDict[key][0]
+    otherValue = otherKeyTimeDict[key][1]
+
+    if key in localKvsDict:
+        localTime = keyTimeDict[key][0]
+        if localTime < otherTime:
+            keyTimeDict[key][0] = otherTime
+            keyTimeDict[key][1] = otherValue
+            localKvsDict[key] = otherValue
+    else:
+        keyTimeDict.update({key : [otherTime, otherValue]})
+        localKvsDict.update({key : value})
+
+
+# gossip every 3 seconds
+cron = Scheduler(daemon=True)
+# Explicitly kick off the background thread
+cron.start()
+
+@cron.interval_schedule(seconds=3)
+def gossip():
+    # testing scheduler
+    print ('testing')
+
+    # go through keys and shards to PUT updated keyTimeDict values
+    for key in keyShardDict:
+        shard = keyShardDict[key]
+        for address in shardAddressesDict[shard]:
+            baseUrl = ('http://' + address + '/kvs/gossipCheck/' + key)
+
+            # feel free to adjust timeoutVal, I put in a random amount
+            timeoutVal = 4
+            passingDict = {}
+            r = requests.put(baseUrl, json={'keyTimeDict' : json.dumps(keyTimeDict)}, timeout=timeoutVal)
+
+# Shutdown your cron thread if the web process is stopped
+atexit.register(lambda: cron.shutdown(wait=False))
 
 
 
