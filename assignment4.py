@@ -161,9 +161,11 @@ def kvs(key):
                 value = None
                 try:
                     r = requests.get(baseUrl, timeout=timeoutVal) #timeout is generous because we want a response
+                    print("r: " + str(r), file=sys.stderr)
                     #retrieve value, if r exists
                     if r is not None:
-                        value = r.json().get('value')                  
+                        value = r.json().get('value')
+                        print("value: ", file=sys.stderr)              
                 except:
                     #except means node is down, but there's nothing we can do
                     #besides try another node, so we pass
@@ -322,7 +324,7 @@ def kvs(key):
             causalContextDict = None
             for address in correctKeyAddresses:
                 baseUrl = ('http://' + address + '/kvs/keys/' + key)
-                timeoutVal = 4 #/ (len(correctKeyAddresses) * 2)
+                timeoutVal = 4 / (len(correctKeyAddresses) * 2)
                 try:
                     myjsonDict = None
                     try:
@@ -460,6 +462,7 @@ def kvs(key):
         #check if our version is outdated, by comparing against the causal-context from client
         #get local timestamp
         ourTime = keyTimeDict.get(key)
+        data = None
         #get causal context's timestamp
         if(request.get_json() is not None):
             data = request.get_json()
@@ -520,10 +523,10 @@ def kvs(key):
                 timeoutVal = 4 / len(addresses)
                 try:
                     r = requests.put(baseUrl, timeout=timeoutVal)
-                    theirTime = r.get_json().get("time")
+                    theirTime = r.json().get("time")
                     if(theirTime > ourTime):
                         ourTime = theirTime
-                        updatedVal = r.get_json().get("value")
+                        updatedVal = r.json().get("value")
                 except:
                     pass
             #update our local values
@@ -999,7 +1002,7 @@ def putViewChange():
 
 # check if other value has been updated later than local value for key
 @app.route('/kvs/gossipCheck', methods = ['PUT'])
-def gossipCheck(key):
+def gossipCheck():
     #gossipDict: <key: [timestamp, value]
     timeSlot = 0
     valueSlot = 1
@@ -1036,6 +1039,8 @@ def gossipCheck(key):
     for key, shard in otherKeyShardDict.items():
         keyShardDict.update({key : shard})
 
+    return "OK", 200
+
     
     
     #if key in localKvsDict:
@@ -1068,11 +1073,11 @@ def gossip():
         if(keyTimeDict.get(key) is not None):
             ourTime = keyTimeDict.get(key)
             timeValueArray = [ourTime, value]
-            gossipDict.update({key, timeValueArray})
+            gossipDict.update({key : timeValueArray})
         else:
             ourTime = 0 #easier to handle than (None) time
             timeValueArray = [ourTime, value]
-            gossipDict.update({key, timeValueArray})
+            gossipDict.update({key : timeValueArray})
     #dict of <key: [timestamp, value]> should be built for all keys, with our valid timestamps or 0 indicating no timestamp
     addresses = keyShardDict.get(selfShardID)
     if(addresses is not None):
