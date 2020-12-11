@@ -231,7 +231,7 @@ def kvs(key):
                     if isRequestGood == True:
                         break
                     else:
-                        timeoutVal = 4 / len(correctKeyAddresses)
+                        timeoutVal = 4 / (len(correctKeyAddresses) * 2)
                         #print(timeoutVal, file=sys.stderr)
                         baseUrl = ('http://' + address + '/kvs/isRequestValidToShard/' + key)
                         try:
@@ -325,7 +325,7 @@ def kvs(key):
             causalContextDict = None
             for address in correctKeyAddresses:
                 baseUrl = ('http://' + address + '/kvs/keys/' + key)
-                timeoutVal = 4 / len(correctKeyAddresses)
+                timeoutVal = 4 / (len(correctKeyAddresses) * 2)
                 try:
                     myjsonDict = None
                     if(request.get_json() is not None):
@@ -475,7 +475,7 @@ def kvs(key):
 
         theirTime = None
         if(keyInfo is not None):
-            theirTime = keyInfo.get(timestampSlot)
+            theirTime = keyInfo[timestampSlot]
         else:
             pass
         #if they have context, and ours is the same or better
@@ -716,7 +716,7 @@ def getShardInfo(id):
         count = None
         for address in replicas:
             if count is None:
-                timeoutVal = 4 / len(replicas) #something
+                timeoutVal = 4 / len(replicas) # (4 / num requests) seconds
                 baseUrl = ('http://' + address + '/kvs/key-count')
                 try:
                     r = requests.get(baseUrl, timeout=timeoutVal)
@@ -914,7 +914,7 @@ def putViewChange():
         a = 0
         for key, shard in tempKeyShardDict.items():
             #with 5 shards will mod 5 e.g. 4 mod 5 = 4, 5 mod 5 = 5, so we will never out-of-bounds error
-            keyShardDict.update ({ key : shardList[ a % (len(shardList))] })
+            keyShardDict.update({ key : shardList[ a % (len(shardList))] })
             a += 1
 
         #send the new keyShardDict to members of the old view
@@ -982,7 +982,7 @@ def putViewChange():
                     pass
                 else:
                     baseUrl = ('http://' + address + '/kvs/key-count')
-                    timeoutVal = 4 / len(addresses)
+                    timeoutVal = 4 / len(shardAddressesDict)
                     try:
                         r = requests.get(baseUrl, timeout=timeoutVal) #timeout is generous because we care about the response
                         keyCount = r.json().get('key-count')
