@@ -1,7 +1,7 @@
 #imports
 import os, requests, sys, json, datetime, time, atexit
 from flask import Flask, jsonify, request, Response
-from apscheduler.scheduler import Scheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 
 #create app with flask
 app = Flask(__name__)
@@ -998,47 +998,105 @@ def putViewChange():
 
 
 # check if other value has been updated later than local value for key
-@app.route('/kvs/gossipCheck/<string:key>', methods = ['PUT'])
+@app.route('/kvs/gossipCheck', methods = ['PUT'])
 def gossipCheck(key):
-    otherKeyTimeDict = json.loads(request.get_json.get('keyTimeDict'))
-    otherTime = otherKeyTimeDict[key][0]
-    otherValue = otherKeyTimeDict[key][1]
+    #gossipDict: <key: [timestamp, value]
+    timeSlot = 0
+    valueSlot = 1
+    gossipDict = request.get_json().get('gossipDict')
+    otherKeyShardDict = request.get_json().get('keyShardDict')
 
-    if key in localKvsDict:
-        localTime = keyTimeDict[key][0]
-        if localTime < otherTime:
-            keyTimeDict[key][0] = otherTime
-            keyTimeDict[key][1] = otherValue
-            localKvsDict[key] = otherValue
-    else:
-        keyTimeDict.update({key : [otherTime, otherValue]})
-        localKvsDict.update({key : value})
+    #check keys from our replicas first
+    for key, keyInfoArray in gossipDict.items():
+        ourTime = keyTimeDict.get(key)
+        theirTime = keyInfoArray[timeSlot]
+        theirValue = keyInfoArray[valueSlot]
+        
+        #if we have no time (base causal context after reset)
+        if(time is None):
+            #update to gossip values
+            localKvsDict.update({key : theirValue})
+            keyTimeDict.update({key : theirTime})
+        else:
+            #if we do have a time, and it's less than the context time
+            if(time < theirTime):
+                #update our time to their time, our value to their value
+                keyTimeDict.update({key : theirTime})
+                localKvsDict.update({key : theirValue})
+            else:
+                #we have a time, and it matches or is greater than the context time
+                pass #do nothing
+                
+    #update keyShardDict
+    for key, shard in otherKeyShardDict.items():
+        keyShardDict.update({key : shard})
+
+    
+    
+    #if key in localKvsDict:
+    #    localTime = keyTimeDict[key][0]
+    #    if localTime < otherTime:
+    #        keyTimeDict[key][0] = otherTime
+    #        keyTimeDict[key][1] = otherValue
+    #        localKvsDict[key] = otherValue
+    #else:
+    #    keyTimeDict.update({key : [otherTime, otherValue]})
+    #    localKvsDict.update({key : value})
 
 
 # gossip every 3 seconds
-cron = Scheduler(daemon=True)
+#cron = Scheduler(daemon=True)
 # Explicitly kick off the background thread
-cron.start()
+#cron.start()
 
-@cron.interval_schedule(seconds=3)
+#@cron.interval_schedule(seconds=3)
+
+
 def gossip():
     # testing scheduler
-    print ('testing')
+    #print ('testing', file=sys.stderr)
+
+    gossipDict = {}
+    #send all the <key: [timestamp, value]> at once
+    for key, value in localKvsDict.items():
+        timeValueArray = []
+        if(keyTimeDict.get(key) is not None):
+            ourTime = keyTimeDict.get(key)
+            timeValueArray = [ourTime, value]
+            gossipDict.update({key, timeValueArray})
+        else:
+            ourTime = 0 #easier to handle than (None) time
+            timeValueArray = [ourTime, value]
+            gossipDict.update({key, timeValueArray})
+    #dict of <key: [timestamp, value]> should be built for all keys, with our valid timestamps or 0 indicating no timestamp
+    addresses = keyShardDict.get(selfShardID)
+    if(addresses is not None):
+        for address in addresses:
+            baseUrl = ('http://' + address + '/kvs/gossipCheck')
+            try:
+                r = requests.put(baseUrl, json={'gossipDict' : gossipDict, 'keyShardDict' : keyShardDict}, timeout=0.000001)
+            except:
+                pass #we don't care if we timeout, we're just blasting out requests
 
     # go through keys and shards to PUT updated keyTimeDict values
-    for key in keyShardDict:
-        shard = keyShardDict[key]
-        for address in shardAddressesDict[shard]:
-            baseUrl = ('http://' + address + '/kvs/gossipCheck/' + key)
-
-            # feel free to adjust timeoutVal, I put in a random amount
-            timeoutVal = 4
-            passingDict = {}
-            r = requests.put(baseUrl, json={'keyTimeDict' : json.dumps(keyTimeDict)}, timeout=timeoutVal)
+    #for key in keyShardDict:
+    #    shard = keyShardDict[key]
+    #    for address in shardAddressesDict[shard]:
+    #        baseUrl = ('http://' + address + '/kvs/gossipCheck/' + key)
+    #
+    #        # feel free to adjust timeoutVal, I put in a random amount
+    #        timeoutVal = 4
+    #        passingDict = {}
+    #        r = requests.put(baseUrl, json={'keyTimeDict' : json.dumps(keyTimeDict)}, timeout=timeoutVal)
 
 # Shutdown your cron thread if the web process is stopped
-atexit.register(lambda: cron.shutdown(wait=False))
+#atexit.register(lambda: cron.shutdown(wait=False))
 
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=gossip, trigger="interval", seconds=3)
+scheduler.start()
+
+atexit.register(lambda: scheduler.shutdown())
 
 
 #main driver
