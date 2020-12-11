@@ -27,7 +27,7 @@ def decideShard():
                 r = requests.get(baseUrl, timeout=timeoutVal)
                 requestedKeyCount = r.json().get('key-count')
                 if(requestedKeyCount is not None):
-                    haveKeyCount == True
+                    haveKeyCount = True
 
                 if(requestedKeyCount < minKeys):
                     minKeys = requestedKeyCount
