@@ -501,6 +501,7 @@ def kvs(key):
             pass
         #if they have context, and ours is the same or better
         if((theirTime is not None and ourTime is not None) and (ourTime >= theirTime)):
+            print("hits the ourTime >= theirTime block", file=sys.stderr)
             #give the client our value
             value = localKvsDict.get(key)
             #update the causal context to have our time
@@ -517,6 +518,7 @@ def kvs(key):
             return jsonDict, 200
         #else if client context is None
         elif(theirTime is None):
+            print("hits theirTime is None block", file=sys.stderr)
             #give the client our local value
             value = localKvsDict.get(key)
             keyInfo = [ourTime, selfShardID]
@@ -533,6 +535,7 @@ def kvs(key):
             return jsonDict, 200
         #else: client has a context and it's more up-to-date than ours, or we are None and they are not
         else:
+            print("hits the else block", file=sys.stderr)
             #try to retrieve the updated value from the other members of our shard
             addresses = shardAddressesDict.get(selfShardID)
             updatedVal = None
@@ -566,8 +569,9 @@ def kvs(key):
                 }
                 #jsonObject = json.dumps(jsonDict)
                 #return jsonObject, 503
-                return jsonDict, 503
+                return jsonDict, 400
             #return the correct value, with an updated causal-context
+            print("we think we got an updatedValue: %s"%str(updatedValue), file=sys.stderr)
             keyInfo = [ourTime, selfShardID]
             #update our causal-context obj
             causalContextDict = request.get_json().get("causal-context")
