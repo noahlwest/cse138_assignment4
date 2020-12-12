@@ -163,9 +163,8 @@ def kvs(key):
                     r = requests.get(baseUrl, timeout=timeoutVal) #timeout is generous because we want a response
                     print("r: " + str(r), file=sys.stderr)
                     #retrieve value, if r exists
-                    if r is not None:
-                        value = r.json().get('value')
-                        print("value: ", file=sys.stderr)              
+                    value = r.json().get('value')
+                    print("value: %s"%(str(value)), file=sys.stderr)              
                 except:
                     #except means node is down, but there's nothing we can do
                     #besides try another node, so we pass
@@ -246,7 +245,7 @@ def kvs(key):
                                 #timeout is generous because we want a response
                                 isRequestGood = r.json().get('isRequestGood')
                             except:
-                                print("Error:" + str(sys.exc_info()[0]), file=sys.stderr)
+                                print("Error: " + str(sys.exc_info()[0]), file=sys.stderr)
                                 pass
 
                             if isRequestGood == False:
@@ -322,6 +321,14 @@ def kvs(key):
             statusCode = None
             successAddress = None
             causalContextDict = None
+            now = None
+            try:
+                now = request.get_json().get('time')
+            except:
+                pass
+            if(now is None):
+                now = time.time_ns()
+
             for address in correctKeyAddresses:
                 baseUrl = ('http://' + address + '/kvs/keys/' + key)
                 timeoutVal = 4 / (len(correctKeyAddresses) * 2)
@@ -331,19 +338,22 @@ def kvs(key):
                         if(request.get_json() is not None):
                             myjsonDict = request.get_json()
                             causalContextDict = request.get_json().get("causal-context")
+                            myjsonDict.update({'time' : now})
                     except:
                         pass
                     if(causalContextDict is None):
                         causalContextDict = {}
-                        now = time.time_ns()
-                        keyInfo = [now, whichShard]
-                        causalContextDict.update({key : keyInfo})
+
+                    keyInfo = [now, whichShard]
+                    causalContextDict.update({key : keyInfo})
                     if(myjsonDict is None):
                         myjsonDict = {}
+                        myjsonDict.update({'time' : now})
                     #WTH am I doing here??
                     myjsonDict.update({"causal-context": causalContextDict})
+                    print("myjsonDict: %s"%(str(myjsonDict)), file=sys.stderr)
                     r = requests.put(baseUrl, headers={"Content-Type": "application/json"}, json=myjsonDict, timeout=timeoutVal)
- 
+
                     causalContextDict = r.json().get("causal-context")
                     #timeout is generous because we want a response
                     if statusCode is None:
@@ -362,11 +372,19 @@ def kvs(key):
                 
 
             if causalContextDict is None:
-                if(request.get_json() is not None):
-                   causalContextDict = request.get_json().get("causal-context")
+                try:
+                    if(request.get_json() is not None):
+                        causalContextDict = request.get_json().get("causal-context")
+                except:
+                    pass
                 if(causalContextDict is None):
                     causalContextDict = {}
                     #No causal context, put something in here so we have no errors
+                    now = None
+                    try:
+                        now = request.get_json().get('time')
+                    except:
+                        pass
                     now = time.time_ns()
                     retArray = [now, "no shard"]
                     causalContextDict = {"first get" : retArray} 
@@ -531,10 +549,12 @@ def kvs(key):
                     pass
             #update our local values
             #overwrite the local time with the correct time (even if it's the same time)
-            keyTimeDict.update({key, ourTime})
+            keyTimeDict.update({key : ourTime})
             #update our value, if their value is newer
             if(updatedVal is not None):
-                localKvsDict.update({key, updatedVal})
+                print("updating localKvsDict for key (GET): %s value: %s"%(str(key), str(updatedVal)), file=sys.stderr)
+                localKvsDict.update({key : updatedVal})
+                keyTimeDict.update({key : ourTime})
             #no updatedVal, we couldn't contact anyone; NACK
             else:
                 #no error checking, they are confirmed to have had causal context at this point
@@ -558,9 +578,9 @@ def kvs(key):
                 "value" : localKvsDict.get(key),
                 "causal-context" : causalContextDict
             }
-            #jsonObject = json.dumps(jsonDict)
-            #return jsonObject, 200 
             return jsonDict, 200
+
+
     #----------------------------------
 
     #----------------------------------
@@ -569,15 +589,20 @@ def kvs(key):
     if(request.method == 'PUT'):
         #if request has no valid value
         value = None
-        if(request.get_json() is not None):
-            value = request.get_json().get('value')
-        else:
+        try:
+            if(request.get_json() is not None):
+                value = request.get_json().get('value')
+        except:
             pass
 
         if(value is None):
             causalContextDict = None
-            if(request.get_json() is not None):
-                causalContextDict = request.get_json().get('causal-context')
+            try:
+                if(request.get_json() is not None):
+                    causalContextDict = request.get_json().get('causal-context')
+            except:
+                pass
+
             if(causalContextDict is None):
                 #No causal context, put something in here so we have no errors
                 now = time.time_ns()
@@ -618,28 +643,54 @@ def kvs(key):
         created = False
 
         #does value already exist?
-        if(localKvsDict.get(key) is not None):
+        val = localKvsDict.get(key)
+        if(val is not None):
             updated = True
         else:
             created = True
+
+        if(updated == True):
+            #if client attaches 'time' (internal requests)
+            theirTime = None
+            ourTime = None
+            try:
+                theirTime = request.get_json().get('time')
+                ourTime = keyTimeDict.get(key)
+            except:
+                pass
+            if(theirTime is not None):
+                #this is an internal request
+                if(ourTime is None):
+                    pass #they have time, we don't. Should never happen
+                else: #we both have time
+                    if(theirTime < ourTime): #our time is better
+                        #failed internal request, update nothing
+                        return jsonify(message="**internal request with outdated value, doing nothing**"), 200
+                    #else: #their time is better, listen to them
+
+
+        
         #passes the no value check
         value = request.get_json().get('value')
+        print("updating localKvsDict for key (PUT): %s value: %s"%(str(key), str(value)), file=sys.stderr)
         localKvsDict.update({key : value})
         #update our local time for that variable
         #now = datetime.datetime.now()
-        now = time.time_ns()
+        now = None
+        now = request.get_json().get('time')
+        if(now is None):
+            now = time.time_ns()
+        keyTimeDict.update({key : now})
         #passes the no json body check
         #update the context
         causalContextDict = request.get_json().get('causal-context')
         if(causalContextDict is None):
             #No causal context, put something in here so we have no errors
-            now = time.time_ns()
             retArray = [now, "no shard"]
-            causalContextDict = {"first get" : retArray}
+            causalContextDict = {"first put" : retArray}
 
         keyInfo = [now, selfShardID]
         causalContextDict.update({key : keyInfo})
-        keyTimeDict.update({key : now})
         if(created == True):
             jsonDict = {
                 "message" : "Added successfully",
@@ -808,19 +859,29 @@ def rearrangeKeys():
                 for address in addressList:
                     baseUrl = ('http://' + address + '/kvs/keys/' + key)
                     try:
-                        r = requests.put(baseUrl, headers={"Content-Type": "application/json"}, json={'key' : key, 'value' : value}, timeout=0.000001)
-                        #timeout is set to effective 0 because we don't care about the response
+                        localtime = keyTimeDict.get(key)
+                        if(localtime is None): #set time to 0
+                            r = requests.put(baseUrl, headers={"Content-Type": "application/json"}, json={'key' : key, 'value' : value, 'time' : 0}, timeout=0.000001)
+                            #timeout is set to effective 0 because we don't care about the response
+                        else:
+                            r = requests.put(baseUrl, headers={"Content-Type": "application/json"}, json={'key' : key, 'value' : value, 'time' : localtime}, timeout=0.000001)
                     except:
                         pass
-                    
-                del localKvsDict[key]
+                try:
+                    del localKvsDict[key]
+                except:
+                    pass
             #else, if it is the local shard, send to everyone else on this shard
             else:
                 for address in addressList:
                     baseUrl = ('http://' + address + '/kvs/keys/' + key)
                     try:
-                        r = requests.put(baseUrl, headers={"Content-Type": "application/json"}, json={'key' : key, 'value' : value}, timeout=0.000001)
-                        #timeout is set to effective 0 because we don't care about the response
+                        localtime = keyTimeDict.get(key)
+                        if(localtime is None): #set time to 0
+                            r = requests.put(baseUrl, headers={"Content-Type": "application/json"}, json={'key' : key, 'value' : value, 'time' : 0}, timeout=0.000001)
+                            #timeout is set to effective 0 because we don't care about the response
+                        else:
+                            r = requests.put(baseUrl, headers={"Content-Type": "application/json"}, json={'key' : key, 'value' : value, 'time' : localtime}, timeout=0.000001)
                     except:
                         pass
                 #don't delete from local
@@ -942,7 +1003,7 @@ def putViewChange():
                 #timeout set to effective 0 because we try to send, but we don't care about the response
             except:
                 pass
-        
+        time.sleep(0.5)
         #send a rearrangeKeys() type of broadcast
         #tell everyone in the old view to send their keys to the correct place
         #then delete them from local
@@ -968,7 +1029,7 @@ def putViewChange():
 
         #all dicts should be up-to-date, all nodes should have the correct {key : value} pairs
         #get the address and keyCount of every node, then return to client
-        time.sleep(1)
+        time.sleep(1.5)
         #create and reply with {message="View change successful", shards=[{shard-id, key-count, replicas}]}
         shardList.clear()
         #list of dictionaries to be returned in json
@@ -1021,14 +1082,16 @@ def gossipCheck():
             theirValue = keyInfoArray[valueSlot]
             
             #if we have no time (base causal context after reset)
-            if(time is None):
+            if(ourTime is None):
                 #update to gossip values
+                print("GOSSIP (no time): updated key: %s value: %s"%(str(key), str(theirValue)), file=sys.stderr)
                 localKvsDict.update({key : theirValue})
                 keyTimeDict.update({key : theirTime})
             else:
                 #if we do have a time, and it's less than the context time
-                if(time < theirTime):
+                if(ourTime < theirTime):
                     #update our time to their time, our value to their value
+                    print("GOSSIP (updated time): updated key: %s value: %s"%(str(key), str(theirValue)), file=sys.stderr)
                     keyTimeDict.update({key : theirTime})
                     localKvsDict.update({key : theirValue})
                 else:
@@ -1040,26 +1103,6 @@ def gossipCheck():
         keyShardDict.update({key : shard})
 
     return "OK", 200
-
-    
-    
-    #if key in localKvsDict:
-    #    localTime = keyTimeDict[key][0]
-    #    if localTime < otherTime:
-    #        keyTimeDict[key][0] = otherTime
-    #        keyTimeDict[key][1] = otherValue
-    #        localKvsDict[key] = otherValue
-    #else:
-    #    keyTimeDict.update({key : [otherTime, otherValue]})
-    #    localKvsDict.update({key : value})
-
-
-# gossip every 3 seconds
-#cron = Scheduler(daemon=True)
-# Explicitly kick off the background thread
-#cron.start()
-
-#@cron.interval_schedule(seconds=3)
 
 
 def gossip():
@@ -1174,5 +1217,5 @@ if __name__ == '__main__':
                 selfShardID = shard
 
 
-    #app.run(host="0.0.0.0", port=13800, debug=True)
-    app.run(host="0.0.0.0", port=13800)
+    app.run(host="0.0.0.0", port=13800, debug=True)
+    #app.run(host="0.0.0.0", port=13800)
