@@ -1029,7 +1029,7 @@ def putViewChange():
 
         #all dicts should be up-to-date, all nodes should have the correct {key : value} pairs
         #get the address and keyCount of every node, then return to client
-        time.sleep(1.5)
+        time.sleep(2)
         #create and reply with {message="View change successful", shards=[{shard-id, key-count, replicas}]}
         shardList.clear()
         #list of dictionaries to be returned in json
@@ -1109,6 +1109,12 @@ def gossip():
     # testing scheduler
     #print ('testing', file=sys.stderr)
 
+    #print local keyShardDict for debugging
+    #try:
+    #    print("keyShardDict: %s"%str(keyShardDict.items()), file=sys.stderr)
+    #except:
+    #    pass
+
     gossipDict = {}
     #send all the <key: [timestamp, value]> at once
     for key, value in localKvsDict.items():
@@ -1122,7 +1128,7 @@ def gossip():
             timeValueArray = [ourTime, value]
             gossipDict.update({key : timeValueArray})
     #dict of <key: [timestamp, value]> should be built for all keys, with our valid timestamps or 0 indicating no timestamp
-    addresses = keyShardDict.get(selfShardID)
+    addresses = shardAddressesDict.get(selfShardID)
     if(addresses is not None):
         for address in addresses:
             baseUrl = ('http://' + address + '/kvs/gossipCheck')
