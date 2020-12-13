@@ -74,6 +74,65 @@ def getLocalKeyCount():
     keyCount = len(localKvsDict)
     return keyCount
 
+#updateCausalContext()
+#updates the client's context to have any updated times that we have
+#should be called before we return a causal context to the client
+#so we know they are up to date   
+def updateCausalContext(localKeyTimeDict, theirCausalContext):
+    if(theirCausalContext is not None):
+        for key, time in localKeyTimeDict.items():
+            theirKeyInfo = theirCausalContext.get(key)
+            theirTime = None
+            if(theirKeyInfo is not None):
+                theirTime = theirKeyInfo[timestampSlot]
+            ourTime = localKeyTimeDict.get(key)
+            thisKeysShard = keyShardDict.get(key)
+            #they have no time for this key
+            if(theirTime is None):
+                keyInfo = [ourTime, thisKeysShard]
+                theirCausalContext.update({key : keyInfo})
+            #they have a time, we don't have a time
+            elif(ourTime is None):
+                pass
+            #they have a time, we have a time, and ours is better
+            elif(theirTime < ourTime):
+                keyInfo = [ourTime, thisKeysShard]
+                theirCausalContext.update({key : keyInfo})
+            #they have a time, we have a time, and ours is worse
+            else:
+                pass
+    #theirCausalContext is None
+    else:
+        #fill their causalContext with our values
+        newDict = {}
+        for key, time in localKeyTimeDict.items():
+            keyInfo = [time, keyShardDict.get(time)]
+            newDict.update({key : keyInfo})
+        theirCausalContext = newDict.copy()
+            
+
+#updateLatestContext()
+#updates our latestTimeDict if the client's context knows there is newer value
+#should update our latestTimeDict every time we get a request
+#(shouldn't matter for external PUT, but still updates our knowledge)
+#before we return a value in GET, we should check-
+#-if our stored value's time is as good as the latest one we know exists
+#note: this doesn't update our stored value, only lets us know if we're stale
+def updateLatestContext(localLatestTimeDict, theirCausalContext):
+    if(theirCausalContext is not None):
+        for key, keyInfo in theirCausalContext.items():
+            theirTime = keyInfo[timestampSlot]
+            ourLatestTime = localLatestTimeDict.get(key)
+            #we have no time
+            if(ourLatestTime is None):
+                localLatestTimeDict.update({key : theirTime})
+            #we have a time, and it is less than theirs
+            elif(ourLatestTime < theirTime):
+                localLatestTimeDict.update({key : theirTime})
+            #we have a time, and it is the same or better than theirs
+            else:
+                pass
+
 
 #isRequestValidToShard
 #checks if a request is valid, to the shard it is assigned
@@ -120,6 +179,14 @@ def getKeyWithContext(key):
 @app.route('/kvs/keys/<string:key>', methods = ['GET', 'PUT'])
 def kvs(key):
     #----------------------------------
+
+    #if client has causal context, make sure we know
+    try:
+        clientCausalContext = request.get_json().get('causal-context')
+        updateLatestContext(latestTimeDict, clientCausalContext)
+    except:
+        pass #no causal context, no update
+
     #decide whether we're working locally or remotely.
     #find out who the key belongs to
     whichShard = keyShardDict.get(key)
@@ -138,6 +205,9 @@ def kvs(key):
                     now = time.time_ns()
                     retArray = [now, "no shard"]
                     causalContextDict = {"first get" : retArray}
+
+                #update the causalContext before giving it back to the client
+                updateCausalContext(keyTimeDict, causalContextDict)
 
                 jsonDict = {
                     "doesExist" : False,
@@ -182,6 +252,9 @@ def kvs(key):
                         retArray = [now, "no shard"]
                         causalContextDict = {"first get" : retArray}
 
+                    #update the causalContext before giving it back to the client
+                    updateCausalContext(keyTimeDict, causalContextDict)
+
                     jsonDict = {
                         "doesExist" : True,
                         "message" : "Retrieved successfully",
@@ -201,6 +274,9 @@ def kvs(key):
                 now = time.time_ns()
                 retArray = [now, "no shard"]
                 causalContextDict = {"first get" : retArray}
+
+            #update the causalContext before giving it back to the client
+            updateCausalContext(keyTimeDict, causalContextDict)
 
             jsonDict = {
                 "error" : "Unable to satisfy request",
@@ -260,6 +336,9 @@ def kvs(key):
                                     retArray = [now, "no shard"]
                                     causalContextDict = {"first put" : retArray}
 
+                                #update the causalContext before giving it back to the client
+                                updateCausalContext(keyTimeDict, causalContextDict)
+
                                 jsonDict ={
                                     "message": r.json().get("message"),
                                     "error": r.json().get("error"),
@@ -282,6 +361,9 @@ def kvs(key):
                         now = time.time_ns()
                         retArray = [now, "no shard"]
                         causalContextDict = {"first get" : retArray}
+
+                    #update the causalContext before giving it back to the client
+                    updateCausalContext(keyTimeDict, causalContextDict)
 
                     jsonDict = {
                         "error" : "Unable to satisfy request",
@@ -349,7 +431,10 @@ def kvs(key):
                     if(myjsonDict is None):
                         myjsonDict = {}
                         myjsonDict.update({'time' : now})
-                    #WTH am I doing here??
+                    
+                    #update the causalContext before sending requests
+                    updateCausalContext(keyTimeDict, causalContextDict)
+
                     myjsonDict.update({"causal-context": causalContextDict})
                     print("myjsonDict: %s"%(str(myjsonDict)), file=sys.stderr)
                     r = requests.put(baseUrl, headers={"Content-Type": "application/json"}, json=myjsonDict, timeout=timeoutVal)
@@ -389,6 +474,9 @@ def kvs(key):
                     retArray = [now, "no shard"]
                     causalContextDict = {"first get" : retArray} 
 
+                #update the causalContext before giving it back to the client
+                updateCausalContext(keyTimeDict, causalContextDict)
+
                 jsonDict = {
                     "error" : "Unable to satisfy request",
                     "message" : "Error in PUT",
@@ -404,6 +492,10 @@ def kvs(key):
                 if(statusCode == 201):
                     #from the previous block of code, our causal context should be updated
                     #and contained in causalContextString
+
+                    #update the causalContext before giving it back to the client
+                    updateCausalContext(keyTimeDict, causalContextDict)
+
                     jsonDict = {
                         "message" : "Added successfully",
                         "replaced" : False,
@@ -413,6 +505,10 @@ def kvs(key):
                     #return jsonObject, 201
                     return jsonDict, 201
                 if(statusCode == 200):
+
+                    #update the causalContext before giving it back to the client
+                    updateCausalContext(keyTimeDict, causalContextDict)
+
                     jsonDict = {
                         "message" : "Updated successfully",
                         "replaced" : True,
@@ -425,6 +521,10 @@ def kvs(key):
             #if created
             if(r.status_code == 201):
                 #return response with added address
+
+                #update the causalContext before giving it back to the client
+                updateCausalContext(keyTimeDict, causalContextDict)
+
                 jsonDict = {
                         "message" : "Added successfully",
                         "replaced" : False,
@@ -438,6 +538,10 @@ def kvs(key):
             if(r.status_code == 200):
                 #Even though it's not on spec, IP is added because Aleck told us to here:
                 # https://cse138-fall20.slack.com/archives/C01C01HF58S/p1605068093044400?thread_ts=1605067981.043200&cid=C01C01HF58S
+
+                #update the causalContext before giving it back to the client
+                updateCausalContext(keyTimeDict, causalContextDict)
+
                 jsonDict = {
                         "message" : "Updated successfully",
                         "replaced" : True,
@@ -465,6 +569,9 @@ def kvs(key):
                 now = time.time_ns()
                 retArray = [now, "no shard"]
                 causalContextDict = {"first get" : retArray}
+
+            #update the causalContext before giving it back to the client
+            updateCausalContext(keyTimeDict, causalContextDict)
 
             jsonDict = {
                 "doesExist" : False,
@@ -502,11 +609,37 @@ def kvs(key):
         #if they have context, and ours is the same or better
         if((theirTime is not None and ourTime is not None) and (ourTime >= theirTime)):
             print("hits the ourTime >= theirTime block", file=sys.stderr)
+
+            #check if our value is outdated from the latest context we've seen
+            if(latestTimeDict.get(key) is not None):
+                if(latestTimeDict.get(key) > ourTime):
+                    #if they have causal context:
+                    causalContextDict = None
+                    try:
+                        causalContextDict = request.get_json().get("causal-context")
+                    except:
+                        pass
+
+                    #update the causalContext before giving it back to the client
+                    updateCausalContext(keyTimeDict, causalContextDict)
+
+                    jsonDict = {
+                        "error" : "Unable to satisfy request",
+                        "message" : "Error in GET",
+                        "causal-context" : causalContextDict
+                    }
+                    return jsonDict, 400
+
+
             #give the client our value
             value = localKvsDict.get(key)
             #update the causal context to have our time
             keyInfo = [ourTime, selfShardID]
             causalContextDict.update({key: keyInfo})
+
+            #update the causalContext before giving it back to the client
+            updateCausalContext(keyTimeDict, causalContextDict)
+
             jsonDict = {
                 "doesExist" : True,
                 "message" : "Retrieved successfully",
@@ -519,11 +652,35 @@ def kvs(key):
         #else if client context is None
         elif(theirTime is None):
             print("hits theirTime is None block", file=sys.stderr)
+            #check if our value is outdated from the latest context we've seen
+            if(latestTimeDict.get(key) is not None):
+                if(latestTimeDict.get(key) > ourTime):
+                    #if they have causal context:
+                    causalContextDict = None
+                    try:
+                        causalContextDict = request.get_json().get("causal-context")
+                    except:
+                        pass
+
+                    #update the causalContext before giving it back to the client
+                    updateCausalContext(keyTimeDict, causalContextDict)
+
+                    jsonDict = {
+                        "error" : "Unable to satisfy request",
+                        "message" : "Error in GET",
+                        "causal-context" : causalContextDict
+                    }
+                    return jsonDict, 400
+
             #give the client our local value
             value = localKvsDict.get(key)
             keyInfo = [ourTime, selfShardID]
             causalContextDict = {}
             causalContextDict.update({key: keyInfo})
+
+            #update the causalContext before giving it back to the client
+            updateCausalContext(keyTimeDict, causalContextDict)
+
             jsonDict = {
                 "doesExist" : True,
                 "message" : "Retrieved successfully",
@@ -552,7 +709,17 @@ def kvs(key):
                     pass
             #update our local values
             #overwrite the local time with the correct time (even if it's the same time)
-            keyTimeDict.update({key : ourTime})
+            #keyTimeDict.update({key : ourTime})
+
+            #if the updated time (ourTime) is still worse than the best time we've seen, set-
+            #-updatedVal to None so it passes through to the NACK branch
+            if(latestTimeDict.get(key) is not None):
+                #print("latestTimeDict.get(%s): %s"%(str(key), str(latestTimeDict.get(key))), file=sys.stderr)
+                if(latestTimeDict.get(key) > ourTime):
+                    updatedVal = None
+                    print("updatedVal reset to None", file=sys.stderr)
+            #else: the updated value is the most up-to-date value we know exists
+
             #update our value, if their value is newer
             if(updatedVal is not None):
                 print("updating localKvsDict for key (GET): %s value: %s"%(str(key), str(updatedVal)), file=sys.stderr)
@@ -562,9 +729,13 @@ def kvs(key):
             else:
                 #no error checking, they are confirmed to have had causal context at this point
                 causalContextDict = request.get_json().get("causal-context")
+
+                #update the causalContext before giving it back to the client
+                updateCausalContext(keyTimeDict, causalContextDict)
+
                 jsonDict = {
                     "error" : "Unable to satisfy request",
-                    "message" : "Error in PUT",
+                    "message" : "Error in GET",
                     "causal-context" : causalContextDict
                 }
                 #jsonObject = json.dumps(jsonDict)
@@ -576,6 +747,10 @@ def kvs(key):
             #update our causal-context obj
             causalContextDict = request.get_json().get("causal-context")
             causalContextDict.update({key: keyInfo})
+
+            #update the causalContext before giving it back to the client
+            updateCausalContext(keyTimeDict, causalContextDict)
+
             jsonDict = {
                 "message" : "Retrieved successfully",
                 "doesExist" : True,
@@ -613,6 +788,9 @@ def kvs(key):
                 retArray = [now, "no shard"]
                 causalContextDict = {"first get" : retArray}
 
+            #update the causalContext before giving it back to the client
+            updateCausalContext(keyTimeDict, causalContextDict)
+
             jsonDict = {
                 "error" : "Value is missing",
                 "message" : "Error in PUT",
@@ -632,6 +810,9 @@ def kvs(key):
                 now = time.time_ns()
                 retArray = [now, "no shard"]
                 causalContextDict = {"first get" : retArray}
+
+            #update the causalContext before giving it back to the client
+            updateCausalContext(keyTimeDict, causalContextDict)
 
             jsonDict = {
                 "error" : "Key is too long",
@@ -696,6 +877,10 @@ def kvs(key):
         keyInfo = [now, selfShardID]
         causalContextDict.update({key : keyInfo})
         if(created == True):
+
+            #update the causalContext before giving it back to the client
+            updateCausalContext(keyTimeDict, causalContextDict)
+
             jsonDict = {
                 "message" : "Added successfully",
                 "replaced" : False,
@@ -705,6 +890,9 @@ def kvs(key):
             #return jsonObject, 201
             return jsonDict, 201
         else:
+            #update the causalContext before giving it back to the client
+            updateCausalContext(keyTimeDict, causalContextDict)
+
             jsonDict = {
                 "message" : "Updated successfully",
                 "replaced" : True,
@@ -1219,6 +1407,11 @@ if __name__ == '__main__':
     keyTimeDict = {}
     timestampSlot = 0
     shardSlot = 1
+
+    #{key : latestTime}
+    #keeps track of the most recent context (time) we've seen for each key
+    #used to verify whether to return a value or a NACK during a GET
+    latestTimeDict = {}
 
     #decide which shardID belongs to local node
     for shard, addresses in shardAddressesDict.items():
