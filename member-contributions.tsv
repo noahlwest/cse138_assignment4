@@ -1,0 +1,3 @@
+Zachariah Hyman zshyman	/shards and /shards/<id> initial commit	causal context object design	update/insert protocol	debugging	planning: prioritizing which new features to work on first and listing them in order	
+Keerthana Routhu krouthu	Gossip feature initial commit	Discussed project	Discussed design			
+Noah West nolwest	Design/implementation	ported assignment3 functions to work w/ replication and causal context	Dockerfile	Created causal context stuff	fixed bugs	testing
